@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Winche.Events/Winche.Events.csproj" />
+    <Project Path="src/Winche.Events.Commands/Winche.Events.Commands.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Winche.Events.Tests/Winche.Events.Tests.csproj" />
+    <Project Path="tests/Winche.Events.Commands.Tests/Winche.Events.Commands.Tests.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Winche.Events.Sample/Winche.Events.Sample.csproj" />
+  </Folder>
+</Solution>

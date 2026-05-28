@@ -1,0 +1,22 @@
+<Project>
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <Authors>Ehsan Rashidi</Authors>
+    <Copyright>Copyright (c) 2025 Ehsan Rashidi</Copyright>
+    <Description>A Marten-backed event sourcing library for .NET 10. Provides typed projections, an explicit unit-of-work session, optimistic concurrency, post-commit notifications, and an optional command-dispatch layer</Description>
+    <PackageTags>event-sourcing;marten;dotnet;projections;unit-of-work;optimistic-concurrency;notifications;command-dispatch</PackageTags>
+    <PackageProjectUrl>https://github.com/FlameOfUdun/winche-sentinel</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/FlameOfUdun/winche-sentinel</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" />
+    <None Include="$(MSBuildThisFileDirectory)LICENSE" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>
