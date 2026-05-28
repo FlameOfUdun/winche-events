@@ -25,6 +25,7 @@ jobs:
 
       - name: Pack
         run: |
+          dotnet pack src/Winche.Events.Abstractions/Winche.Events.Abstractions.csproj -c Release --no-build -o ./packages
           dotnet pack src/Winche.Events/Winche.Events.csproj -c Release --no-build -o ./packages
           dotnet pack src/Winche.Events.Commands/Winche.Events.Commands.csproj -c Release --no-build -o ./packages
 
