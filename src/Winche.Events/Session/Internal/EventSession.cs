@@ -1,7 +1,7 @@
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Winche.Events.Models;
+using Winche.Events.Abstractions;
 using Winche.Events.Notification;
 using Winche.Events.Projection;
 

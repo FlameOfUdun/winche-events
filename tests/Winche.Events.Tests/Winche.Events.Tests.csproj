@@ -14,5 +14,6 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.*" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.*" />
     <ProjectReference Include="..\..\src\Winche.Events\Winche.Events.csproj" />
+    <ProjectReference Include="..\..\src\Winche.Events.Abstractions\Winche.Events.Abstractions.csproj" />
   </ItemGroup>
 </Project>

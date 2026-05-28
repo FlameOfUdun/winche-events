@@ -2,7 +2,7 @@ using FluentAssertions;
 using Marten;
 using Microsoft.Extensions.DependencyInjection;
 using Winche.Events.DependencyInjection;
-using Winche.Events.Models;
+using Winche.Events.Abstractions;
 using Winche.Events.Notification;
 using Winche.Events.Projection;
 using Winche.Events.Session;

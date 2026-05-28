@@ -2,7 +2,7 @@ using FluentAssertions;
 using NSubstitute;
 using Winche.Events.Commands;
 using Winche.Events.Commands.Internal;
-using Winche.Events.Models;
+using Winche.Events.Abstractions;
 using Winche.Events.Session;
 using Xunit;
 

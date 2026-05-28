@@ -12,5 +12,6 @@
     <PackageReference Include="FluentAssertions" Version="6.*" />
     <PackageReference Include="NSubstitute" Version="5.*" />
     <ProjectReference Include="..\..\src\Winche.Events.Commands\Winche.Events.Commands.csproj" />
+    <ProjectReference Include="..\..\src\Winche.Events.Abstractions\Winche.Events.Abstractions.csproj" />
   </ItemGroup>
 </Project>

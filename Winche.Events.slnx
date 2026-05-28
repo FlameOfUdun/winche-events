@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Winche.Events/Winche.Events.csproj" />
+    <Project Path="src/Winche.Events.Abstractions/Winche.Events.Abstractions.csproj" />
     <Project Path="src/Winche.Events.Commands/Winche.Events.Commands.csproj" />
   </Folder>
   <Folder Name="/tests/">

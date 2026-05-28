@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Winche.Events\Winche.Events.csproj" />
     <ProjectReference Include="..\..\src\Winche.Events.Commands\Winche.Events.Commands.csproj" />
+    <ProjectReference Include="..\..\src\Winche.Events.Abstractions\Winche.Events.Abstractions.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.*" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.*" />
   </ItemGroup>

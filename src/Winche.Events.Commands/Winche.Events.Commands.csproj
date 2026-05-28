@@ -17,6 +17,7 @@
     <ProjectReference Include="..\..\src\Winche.Events\Winche.Events.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.*" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
+    <ProjectReference Include="..\..\src\Winche.Events.Abstractions\Winche.Events.Abstractions.csproj" />
   </ItemGroup>
 
   <ItemGroup>

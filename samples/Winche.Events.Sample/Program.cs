@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 using Winche.Events.Commands;
 using Winche.Events.Commands.DependencyInjection;
 using Winche.Events.DependencyInjection;
-using Winche.Events.Models;
+using Winche.Events.Abstractions;
 using Winche.Events.Notification;
 using Winche.Events.Projection;
 using Winche.Events.Session;

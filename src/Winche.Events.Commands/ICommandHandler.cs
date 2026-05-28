@@ -1,4 +1,4 @@
-using Winche.Events.Models;
+using Winche.Events.Abstractions;
 
 namespace Winche.Events.Commands;
 

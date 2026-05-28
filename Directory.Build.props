@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Authors>Ehsan Rashidi</Authors>
     <Copyright>Copyright (c) 2025 Ehsan Rashidi</Copyright>
     <Description>A Marten-backed event sourcing library for .NET 10. Provides typed projections, an explicit unit-of-work session, optimistic concurrency, post-commit notifications, and an optional command-dispatch layer</Description>
