@@ -7,8 +7,10 @@ using Winche.Events.Abstractions;
 using Winche.Events.Notification;
 using Winche.Events.Projection;
 using Winche.Events.Session;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
-const string ConnectionString = "your-connection-string-here";
+const string ConnectionString = "Host=localhost;Port=5432;Username=postgres;Password=Ehsan1371;Database=winche_events_test";
 
 var services = new ServiceCollection();
 
@@ -22,6 +24,11 @@ services.AddWincheEvents(opts =>
     opts.AddEvent<OrderCancelled>();
     opts.AddProjection<OrderProjection>(ProjectionMode.Live);
     opts.AddNotifier<ConsoleNotifier>();
+    opts.ConfigureJsonSerializer = jsonOpts =>
+    {
+        jsonOpts.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        jsonOpts.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+    };
 });
 
 services.AddWincheEventsCommands(commands =>

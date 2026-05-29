@@ -37,8 +37,16 @@ public static class ServiceCollectionExtensions
             storeOptions.Connection(options.ConnectionString);
             storeOptions.Events.StreamIdentity = StreamIdentity.AsString;
 
-            foreach (var eventType in options.EventTypes)
+            foreach (var (eventType, alias) in options.EventTypes)
+            {
                 storeOptions.Events.AddEventType(eventType);
+
+                if (alias is not null)
+                    storeOptions.Events.MapEventType(eventType, alias);
+            }
+
+            if (options.ConfigureJsonSerializer is not null)
+                storeOptions.UseSystemTextJsonForSerialization(configure: options.ConfigureJsonSerializer);
 
             foreach (var (projection, mode) in options.Projections)
                 projection.ConfigureMarten(storeOptions, sp, ToMartenLifecycle(mode));
