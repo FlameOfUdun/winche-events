@@ -30,7 +30,7 @@ public interface IEventSession : IAsyncDisposable
     /// <param name="ct">Cancellation token.</param>
     Task<TAggregate?> LoadAsync<TAggregate>(
         string streamId,
-        CancellationToken ct = default) where TAggregate : class, IAggregate<string>;
+        CancellationToken ct = default) where TAggregate : class, IAggregate;
 
     /// <summary>
     /// Commits all buffered events to PostgreSQL, then fires registered <see cref="Notification.IAppendNotifier"/> instances.

@@ -6,7 +6,7 @@ using JasperFxEvent = JasperFx.Events.IEvent;
 namespace Winche.Events.Projection.Internal;
 
 internal sealed class ProjectionBridge<TAggregate>(Projection<TAggregate> projection) : SingleStreamProjection<TAggregate, string>
-    where TAggregate : class, IAggregate<string>
+    where TAggregate : class, IAggregate
 {
     private readonly Projection<TAggregate> _projection = projection;
 

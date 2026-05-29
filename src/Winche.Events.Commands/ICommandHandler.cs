@@ -7,7 +7,7 @@ namespace Winche.Events.Commands;
 /// </summary>
 /// <typeparam name="TCommand">The command type.</typeparam>
 /// <typeparam name="TAggregate">The aggregate type the command operates on.</typeparam>
-public interface ICommandHandler<TCommand, TAggregate> where TAggregate : class, IAggregate<string>
+public interface ICommandHandler<TCommand, TAggregate> where TAggregate : class, IAggregate
 {
     /// <summary>
     /// Validates the command against <paramref name="currentState"/> and returns the events to persist.

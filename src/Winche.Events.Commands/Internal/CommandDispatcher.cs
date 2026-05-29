@@ -23,7 +23,7 @@ internal sealed class CommandDispatcher : ICommandDispatcher
         string streamId,
         object command,
         long? expectedVersion = null,
-        CancellationToken ct = default) where TAggregate : class, IAggregate<string>
+        CancellationToken ct = default) where TAggregate : class, IAggregate
     {
         await using var session = await _eventStore.OpenSessionAsync(ct: ct);
 

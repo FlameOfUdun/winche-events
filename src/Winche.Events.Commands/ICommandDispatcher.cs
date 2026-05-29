@@ -23,5 +23,5 @@ public interface ICommandDispatcher
         string streamId,
         object command,
         long? expectedVersion = null,
-        CancellationToken ct = default) where TAggregate : class, IAggregate<string>;
+        CancellationToken ct = default) where TAggregate : class, IAggregate;
 }

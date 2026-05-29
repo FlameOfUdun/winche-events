@@ -3,25 +3,20 @@ namespace Winche.Events.Abstractions;
 /// <summary>
 /// Base interface for all aggregate types. Every aggregate must inherit from <c>Aggregate</c>.
 /// </summary>
-/// <typeparam name="TKey">The type of the aggregate's identifier.</typeparam>
-public interface IAggregate<TKey>
+public interface IAggregate
 {
     /// <summary>
     /// The stream identifier for this aggregate instance. Set by the projection infrastructure.
     /// </summary>
-    TKey Id { get; init; }
+    string Id { get; init; }
 }
 
+
 /// <summary>
-/// Base record for all aggregate state types.
+/// Base record for all aggregate state types. Most applications will use this type.
 /// </summary>
-public abstract record Aggregate<TKey> : IAggregate<TKey>
+public abstract record Aggregate : IAggregate
 {
-    /// <inheritdoc />
-    public TKey Id { get; init; } = default!;
+    /// <inheritdoc/>
+    public string Id { get; init; } = Guid.NewGuid().ToString();
 }
-
-/// <summary>
-/// Base record for all aggregate state types with string identifiers. Most applications will use this type.
-/// </summary>
-public abstract record Aggregate : Aggregate<string>;

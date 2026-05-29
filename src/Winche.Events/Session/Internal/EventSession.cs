@@ -50,7 +50,7 @@ internal sealed class EventSession : IEventSession
 
     public async Task<TAggregate?> LoadAsync<TAggregate>(
         string streamId,
-        CancellationToken ct = default) where TAggregate : class, IAggregate<string>
+        CancellationToken ct = default) where TAggregate : class, IAggregate
     {
         if (_inlineProjectionTypes.Contains(typeof(TAggregate)))
             return await _session.LoadAsync<TAggregate>(streamId, ct);

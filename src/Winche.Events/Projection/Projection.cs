@@ -14,7 +14,7 @@ namespace Winche.Events.Projection;
 /// silently ignored.
 /// </summary>
 /// <typeparam name="TAggregate">The aggregate state type produced by this projection.</typeparam>
-public abstract class Projection<TAggregate> : ProjectionBase where TAggregate : class, IAggregate<string>
+public abstract class Projection<TAggregate> : ProjectionBase where TAggregate : class, IAggregate
 {
     private static readonly ConcurrentDictionary<(Type, Type), MethodInfo?> _syncMethodCache = new();
     private static readonly ConcurrentDictionary<(Type, Type), MethodInfo?> _asyncMethodCache = new();
