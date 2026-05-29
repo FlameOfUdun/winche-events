@@ -14,6 +14,7 @@
 - `ICommandDispatcher` has a single responsibility: dispatch
 - `LoadAsync` reads the stored document — no event replay on every call
 - Support both Inline and Async projection modes as a per-registration decision
+- Projection handlers receive a typed `EventEnvelope<TEvent>` giving access to event data and stream metadata
 
 ---
 
@@ -23,14 +24,33 @@
 
 `Projection<TAggregate>` replaces convention-based `Apply` / `ApplyAsync` method discovery with explicit delegate registration in the constructor. All `ConcurrentDictionary` reflection caches and `MethodInfo.Invoke` calls are deleted.
 
-Two overloads:
+#### `EventEnvelope<TEvent>`
+
+Handlers receive a generic envelope carrying both the typed event data and stream metadata. Defined in `Winche.Events.Abstractions`:
 
 ```csharp
-protected void On<TEvent>(Func<TAggregate, TEvent, TAggregate> handler)
-protected void On<TEvent>(Func<TAggregate, TEvent, Task<TAggregate>> handler)
+public sealed record EventEnvelope<TEvent>(
+    string StreamId,
+    TEvent Data,
+    long Version,
+    DateTimeOffset Timestamp) where TEvent : IEvent;
 ```
 
-Both store a typed closure in a `Dictionary<Type, ...>` keyed by `TEvent`. `ApplyEvent` and `ApplyEventAsync` become plain `TryGetValue` lookups — no reflection.
+The existing non-generic `EventEnvelope` (used by `GetEventsAsync`) is replaced by `EventEnvelope<IEvent>` everywhere, unifying the type.
+
+#### `On<TEvent>` overloads
+
+```csharp
+protected void On<TEvent>(Func<TAggregate, EventEnvelope<TEvent>, TAggregate> handler)
+    where TEvent : IEvent
+
+protected void On<TEvent>(Func<TAggregate, EventEnvelope<TEvent>, Task<TAggregate>> handler)
+    where TEvent : IEvent
+```
+
+Both store a typed closure in a `Dictionary<Type, Func<TAggregate, EventEnvelope<IEvent>, Task<TAggregate>>>` keyed by `TEvent`. The closure upcasts `EventEnvelope<IEvent>` to `EventEnvelope<TEvent>` — safe because the dictionary is keyed by the same type. `ApplyEventAsync` becomes a plain `TryGetValue` — no reflection.
+
+`ProjectionBridge` maps the JasperFx `IEvent` wrapper to `EventEnvelope<IEvent>` before calling `ApplyEventAsync`.
 
 Private methods can be passed as method groups:
 
@@ -39,16 +59,16 @@ class OrderProjection(IInventoryClient inventory) : Projection<Order>
 {
     public OrderProjection()
     {
-        On<OrderPlaced>((s, e) => s with { Status = "placed", Total = e.Total });
+        On<OrderPlaced>((s, e) => s with { Status = "placed", Total = e.Data.Total });
         On<OrderShipped>(HandleShipped);
     }
 
     public override Order Create(string id) => new("none", 0) { Id = id };
 
-    private async Task<Order> HandleShipped(Order s, OrderShipped e)
+    private async Task<Order> HandleShipped(Order s, EventEnvelope<OrderShipped> e)
     {
-        var stock = await inventory.GetStockAsync(e.ProductId);
-        return s with { Status = "shipped", Stock = stock };
+        var stock = await inventory.GetStockAsync(e.Data.ProductId);
+        return s with { Status = "shipped", Stock = stock, LastModified = e.Timestamp };
     }
 }
 ```
@@ -240,6 +260,7 @@ dispatcher.DispatchAsync(orderId, new ShipOrderCommand(...))
 | `dynamic` in `CommandDispatcher` | Replaced by typed `CommandHandler<TAggregate>` lookup |
 | `IServiceProvider` in `EventSession` | No longer needed (no event replay in `LoadAsync`) |
 | `DispatchAndLoadAsync` | Consumer calls `LoadAsync` explicitly |
+| Non-generic `EventEnvelope` | Replaced by `EventEnvelope<IEvent>` / `EventEnvelope<TEvent>` |
 
 ---
 
@@ -261,11 +282,15 @@ class OrderProjection(IInventoryClient inv) : Projection<Order>
 {
     public OrderProjection()
     {
-        On<OrderPlaced>((s, e) => s with { Status = "placed" });
+        On<OrderPlaced>((s, e) => s with { Status = "placed", Total = e.Data.Total });
         On<OrderShipped>(HandleShipped);
     }
     public override Order Create(string id) => ...;
-    private async Task<Order> HandleShipped(Order s, OrderShipped e) { ... }
+    private async Task<Order> HandleShipped(Order s, EventEnvelope<OrderShipped> e)
+    {
+        var stock = await inv.GetStockAsync(e.Data.ProductId);
+        return s with { Status = "shipped", LastModified = e.Timestamp };
+    }
 }
 ```
 
