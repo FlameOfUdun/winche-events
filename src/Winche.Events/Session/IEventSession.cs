@@ -42,6 +42,14 @@ public interface IEventSession : IAsyncDisposable
         CancellationToken ct = default) where TAggregate : class, IAggregate;
 
     /// <summary>
+    /// Queries stored aggregate documents. The <paramref name="query"/> function shapes the
+    /// <see cref="IQueryable{T}"/> (filter, order, skip/take) before it is materialized.
+    /// </summary>
+    Task<IReadOnlyList<TAggregate>> QueryStatesAsync<TAggregate>(
+        Func<IQueryable<TAggregate>, IQueryable<TAggregate>> query,
+        CancellationToken ct = default) where TAggregate : class, IAggregate;
+
+    /// <summary>
     /// Returns the <c>mt_streams</c> row for <paramref name="streamId"/> combined with the current
     /// projected aggregate document. Returns <c>null</c> if the stream does not exist.
     /// </summary>

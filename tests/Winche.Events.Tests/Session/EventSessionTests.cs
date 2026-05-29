@@ -237,4 +237,58 @@ public class EventSessionTests : IAsyncLifetime
         placed.Should().ContainSingle().Which.Data.OrderId.Should().Be("orders/evt-filter");
         shipped.Should().ContainSingle().Which.Data.OrderId.Should().Be("orders/evt-filter");
     }
+
+    [Fact]
+    public async Task QueryStatesAsync_returns_all_documents_without_filter()
+    {
+        await using var setup = await _eventStore.OpenSessionAsync();
+        await setup.AppendStreamAsync("orders/q1", [new OrderPlaced("orders/q1")]);
+        await setup.AppendStreamAsync("orders/q2", [new OrderPlaced("orders/q2")]);
+        await setup.SaveChangesAsync();
+
+        await using var session = await _eventStore.OpenSessionAsync();
+        var results = await session.QueryStatesAsync<OrderState>(q => q);
+
+        results.Should().Contain(o => o.Id == "orders/q1");
+        results.Should().Contain(o => o.Id == "orders/q2");
+    }
+
+    [Fact]
+    public async Task QueryStatesAsync_applies_where_filter()
+    {
+        await using var setup = await _eventStore.OpenSessionAsync();
+        await setup.AppendStreamAsync("orders/qw1", [new OrderPlaced("orders/qw1")]);
+        await setup.AppendStreamAsync("orders/qw2", [new OrderPlaced("orders/qw2"), new OrderShipped("orders/qw2")]);
+        await setup.SaveChangesAsync();
+
+        await using var session = await _eventStore.OpenSessionAsync();
+        var shipped = await session.QueryStatesAsync<OrderState>(q => q.Where(o => o.Status == "shipped"));
+
+        shipped.Should().Contain(o => o.Id == "orders/qw2");
+        shipped.Should().NotContain(o => o.Id == "orders/qw1");
+    }
+
+    [Fact]
+    public async Task QueryStatesAsync_applies_take()
+    {
+        await using var setup = await _eventStore.OpenSessionAsync();
+        await setup.AppendStreamAsync("orders/qt1", [new OrderPlaced("orders/qt1")]);
+        await setup.AppendStreamAsync("orders/qt2", [new OrderPlaced("orders/qt2")]);
+        await setup.AppendStreamAsync("orders/qt3", [new OrderPlaced("orders/qt3")]);
+        await setup.SaveChangesAsync();
+
+        await using var session = await _eventStore.OpenSessionAsync();
+        var results = await session.QueryStatesAsync<OrderState>(q => q.Where(o => o.Status == "placed").Take(2));
+
+        results.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task QueryStatesAsync_returns_empty_when_no_match()
+    {
+        await using var session = await _eventStore.OpenSessionAsync();
+        var results = await session.QueryStatesAsync<OrderState>(q => q.Where(o => o.Status == "nonexistent-status"));
+
+        results.Should().BeEmpty();
+    }
 }

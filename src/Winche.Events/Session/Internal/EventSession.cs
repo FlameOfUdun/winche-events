@@ -56,6 +56,14 @@ internal sealed class EventSession : IEventSession
         return await _session.LoadAsync<TAggregate>(streamId, ct);
     }
 
+    public async Task<IReadOnlyList<TAggregate>> QueryStatesAsync<TAggregate>(
+        Func<IQueryable<TAggregate>, IQueryable<TAggregate>> query,
+        CancellationToken ct = default) where TAggregate : class, IAggregate
+    {
+        var result = await query(_session.Query<TAggregate>()).ToListAsync(ct);
+        return result;
+    }
+
     public async Task<StreamEnvelope<TAggregate>?> GetStreamAsync<TAggregate>(
         string streamId,
         CancellationToken ct = default) where TAggregate : class, IAggregate

@@ -177,6 +177,26 @@ var order = await session.LoadFreshAsync<Order>("orders/123");                  
 var order = await session.LoadFreshAsync<Order>("orders/123", TimeSpan.FromSeconds(10));
 ```
 
+### QueryStatesAsync
+
+Queries stored aggregate documents using a LINQ compose function. The caller shapes the `IQueryable<TAggregate>` (filter, order, paging) before it is materialized.
+
+```csharp
+// All placed orders
+var placed = await session.QueryStatesAsync<Order>(
+    q => q.Where(o => o.Status == "placed"));
+
+// Latest 10 orders by id, descending
+var recent = await session.QueryStatesAsync<Order>(
+    q => q.OrderByDescending(o => o.Id).Take(10));
+
+// Combined filter + paging
+var page = await session.QueryStatesAsync<Order>(
+    q => q.Where(o => o.Status == "placed").OrderBy(o => o.Id).Skip(20).Take(10));
+```
+
+Pass `q => q` to return all documents of that type.
+
 ### GetStreamAsync
 
 Returns a `StreamEnvelope<TAggregate>` combining the stream row from `mt_streams` with the current projected aggregate document. Returns `null` if the stream does not exist.
