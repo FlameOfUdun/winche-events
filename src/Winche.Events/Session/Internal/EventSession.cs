@@ -15,7 +15,7 @@ internal sealed class EventSession : IEventSession
     private readonly IReadOnlyList<IAppendNotifier> _notifiers;
     private readonly ILogger<EventSession> _logger;
 
-    private readonly List<(string StreamId, string StreamType, List<DomainEvent> Events)> _pending = [];
+    private readonly List<(string StreamId, List<IEvent> Events)> _pending = [];
 
     internal EventSession(
         IDocumentSession session,
@@ -31,9 +31,9 @@ internal sealed class EventSession : IEventSession
         _logger = logger;
     }
 
-    public Task AppendAsync<TAggregate>(
+    public Task AppendAsync(
         string streamId,
-        IEnumerable<DomainEvent> events,
+        IEnumerable<IEvent> events,
         long? expectedVersion = null,
         CancellationToken ct = default)
     {
@@ -44,13 +44,13 @@ internal sealed class EventSession : IEventSession
         else
             _session.Events.Append(streamId, eventList.ToArray());
 
-        _pending.Add((streamId, typeof(TAggregate).Name, eventList));
+        _pending.Add((streamId, eventList));
         return Task.CompletedTask;
     }
 
     public async Task<TAggregate?> LoadAsync<TAggregate>(
         string streamId,
-        CancellationToken ct = default) where TAggregate : class
+        CancellationToken ct = default) where TAggregate : class, IAggregate<string>
     {
         if (_inlineProjectionTypes.Contains(typeof(TAggregate)))
             return await _session.LoadAsync<TAggregate>(streamId, ct);
@@ -59,9 +59,9 @@ internal sealed class EventSession : IEventSession
         var rawEvents = await _session.Events.FetchStreamAsync(streamId, token: ct);
         if (rawEvents.Count == 0) return null;
 
-        var state = projection.InitialState();
+        var state = projection.Create(streamId);
         foreach (var e in rawEvents)
-            state = projection.ApplyEvent(state, e.Data);
+            state = await projection.ApplyEventAsync(state, e.Data);
 
         return state;
     }
@@ -75,13 +75,13 @@ internal sealed class EventSession : IEventSession
 
     private async Task FireNotifiersAsync(CancellationToken ct)
     {
-        foreach (var (streamId, streamType, events) in _pending)
+        foreach (var (streamId, events) in _pending)
         {
             foreach (var notifier in _notifiers)
             {
                 try
                 {
-                    await notifier.NotifyAsync(streamId, streamType, events, ct);
+                    await notifier.NotifyAsync(streamId, events, ct);
                 }
                 catch (Exception ex)
                 {

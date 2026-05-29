@@ -11,14 +11,13 @@ public interface IEventSession : IAsyncDisposable
     /// <summary>
     /// Buffers <paramref name="events"/> to be appended to <paramref name="streamId"/> on the next <see cref="SaveChangesAsync"/>.
     /// </summary>
-    /// <typeparam name="TAggregate">The aggregate type that owns the stream.</typeparam>
     /// <param name="streamId">The stream identifier.</param>
     /// <param name="events">Events to append.</param>
     /// <param name="expectedVersion">If set, the commit will fail if the stream's current version does not match (optimistic concurrency).</param>
     /// <param name="ct">Cancellation token.</param>
-    Task AppendAsync<TAggregate>(
+    Task AppendAsync(
         string streamId,
-        IEnumerable<DomainEvent> events,
+        IEnumerable<IEvent> events,
         long? expectedVersion = null,
         CancellationToken ct = default);
 
@@ -31,7 +30,7 @@ public interface IEventSession : IAsyncDisposable
     /// <param name="ct">Cancellation token.</param>
     Task<TAggregate?> LoadAsync<TAggregate>(
         string streamId,
-        CancellationToken ct = default) where TAggregate : class;
+        CancellationToken ct = default) where TAggregate : class, IAggregate<string>;
 
     /// <summary>
     /// Commits all buffered events to PostgreSQL, then fires registered <see cref="Notification.IAppendNotifier"/> instances.

@@ -17,17 +17,17 @@ services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
 services.AddWincheEvents(opts =>
 {
     opts.ConnectionString = ConnectionString;
-    opts.AddEventType<OrderPlaced>();
-    opts.AddEventType<OrderShipped>();
-    opts.AddEventType<OrderCancelled>();
-    opts.AddProjection<OrderProjection, Order>(ProjectionMode.Live);
+    opts.AddEvent<OrderPlaced>();
+    opts.AddEvent<OrderShipped>();
+    opts.AddEvent<OrderCancelled>();
+    opts.AddProjection<OrderProjection>(ProjectionMode.Live);
     opts.AddNotifier<ConsoleNotifier>();
 });
 
 services.AddWincheEventsCommands(commands =>
 {
-    commands.AddHandler<PlaceOrderCommand, Order, PlaceOrderHandler>();
-    commands.AddHandler<ShipOrderCommand, Order, ShipOrderHandler>();
+    commands.AddHandler<PlaceOrderHandler>();
+    commands.AddHandler<ShipOrderHandler>();
 });
 
 await using var provider = services.BuildServiceProvider();
@@ -38,19 +38,19 @@ var logger = provider.GetRequiredService<ILogger<Program>>();
 var orderId = $"orders/{Guid.NewGuid():N}";
 
 logger.LogInformation("=== Place order via command dispatcher ===");
-var order = await dispatcher.DispatchAsync<PlaceOrderCommand, Order>(
+var order = await dispatcher.DispatchAsync<Order>(
     orderId, new PlaceOrderCommand(orderId, 99.99m));
 logger.LogInformation("After place: status={Status} total={Total}", order?.Status, order?.Total);
 
 logger.LogInformation("=== Ship order via command dispatcher ===");
-order = await dispatcher.DispatchAsync<ShipOrderCommand, Order>(
+order = await dispatcher.DispatchAsync<Order>(
     orderId, new ShipOrderCommand(orderId));
 logger.LogInformation("After ship: status={Status}", order?.Status);
 
 logger.LogInformation("=== Cancel directly via IEventSession ===");
 await using (var session = await eventStore.OpenSessionAsync())
 {
-    await session.AppendAsync<Order>(orderId, [new OrderCancelled(orderId)]);
+    await session.AppendAsync(orderId, [new OrderCancelled(orderId)]);
     await session.SaveChangesAsync();
 }
 
@@ -63,20 +63,20 @@ await using (var session = await eventStore.OpenSessionAsync())
 
 // ── Domain ────────────────────────────────────────────────────────────────────
 
-record Order(string Id, string Status, decimal Total) : DomainEvent
+record Order(string Status, decimal Total) : Aggregate
 {
-    public static Order Empty => new(string.Empty, "none", 0);
+    public static Order Empty => new("none", 0);
 }
 
-record OrderPlaced(string OrderId, decimal Total) : DomainEvent;
-record OrderShipped(string OrderId) : DomainEvent;
-record OrderCancelled(string OrderId) : DomainEvent;
+record OrderPlaced(string OrderId, decimal Total) : Event;
+record OrderShipped(string OrderId) : Event;
+record OrderCancelled(string OrderId) : Event;
 
 class OrderProjection : Projection<Order>
 {
-    public override Order InitialState() => Order.Empty;
+    public override Order Create(string id) => Order.Empty with { Id = id };
 
-    public Order Apply(Order state, OrderPlaced e) => state with { Id = e.OrderId, Status = "placed", Total = e.Total };
+    public Order Apply(Order state, OrderPlaced e) => state with { Status = "placed", Total = e.Total };
     public Order Apply(Order state, OrderShipped e) => state with { Status = "shipped" };
     public Order Apply(Order state, OrderCancelled e) => state with { Status = "cancelled" };
 }
@@ -88,23 +88,23 @@ record ShipOrderCommand(string OrderId);
 
 class PlaceOrderHandler : ICommandHandler<PlaceOrderCommand, Order>
 {
-    public Task<IEnumerable<DomainEvent>> HandleAsync(PlaceOrderCommand cmd, Order? state, CancellationToken ct)
+    public Task<IEnumerable<IEvent>> HandleAsync(PlaceOrderCommand cmd, Order? state, CancellationToken ct)
     {
         if (state is { Status: not "none" })
             throw new InvalidOperationException($"Order {cmd.OrderId} already exists.");
 
-        return Task.FromResult<IEnumerable<DomainEvent>>([new OrderPlaced(cmd.OrderId, cmd.Total)]);
+        return Task.FromResult<IEnumerable<IEvent>>([new OrderPlaced(cmd.OrderId, cmd.Total)]);
     }
 }
 
 class ShipOrderHandler : ICommandHandler<ShipOrderCommand, Order>
 {
-    public Task<IEnumerable<DomainEvent>> HandleAsync(ShipOrderCommand cmd, Order? state, CancellationToken ct)
+    public Task<IEnumerable<IEvent>> HandleAsync(ShipOrderCommand cmd, Order? state, CancellationToken ct)
     {
         if (state is null or { Status: "none" })
             throw new InvalidOperationException($"Order {cmd.OrderId} does not exist.");
 
-        return Task.FromResult<IEnumerable<DomainEvent>>([new OrderShipped(cmd.OrderId)]);
+        return Task.FromResult<IEnumerable<IEvent>>([new OrderShipped(cmd.OrderId)]);
     }
 }
 
@@ -112,7 +112,7 @@ class ShipOrderHandler : ICommandHandler<ShipOrderCommand, Order>
 
 class ConsoleNotifier(ILogger<ConsoleNotifier> logger) : IAppendNotifier
 {
-    public Task NotifyAsync(string streamId, string streamType, IReadOnlyList<DomainEvent> events, CancellationToken ct = default)
+    public Task NotifyAsync(string streamId, IReadOnlyList<IEvent> events, CancellationToken ct = default)
     {
         foreach (var e in events)
             logger.LogInformation("[notify] {Stream} → {Event}", streamId, e.GetType().Name);

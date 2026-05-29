@@ -11,24 +11,24 @@ using WincheSession = Winche.Events.Session;
 
 namespace Winche.Events.Tests.Session;
 
-public record OrderState(string Id, string Status) : DomainEvent;
-public record OrderPlaced(string OrderId) : DomainEvent;
-public record OrderShipped(string OrderId) : DomainEvent;
+public record OrderState(string Status) : Aggregate;
+public record OrderPlaced(string OrderId) : Event;
+public record OrderShipped(string OrderId) : Event;
 
 public class OrderProjection : Projection<OrderState>
 {
-    public override OrderState InitialState() => new OrderState(string.Empty, "none");
-    public OrderState Apply(OrderState s, OrderPlaced e) => s with { Id = e.OrderId, Status = "placed" };
+    public override OrderState Create(string id) => new OrderState("none") { Id = id };
+    public OrderState Apply(OrderState s, OrderPlaced e) => s with { Status = "placed" };
     public OrderState Apply(OrderState s, OrderShipped e) => s with { Status = "shipped" };
 }
 
 class CapturingNotifier : IAppendNotifier
 {
-    public List<(string StreamId, string StreamType, IReadOnlyList<DomainEvent> Events)> Calls { get; } = [];
+    public List<(string StreamId, IReadOnlyList<IEvent> Events)> Calls { get; } = [];
 
-    public Task NotifyAsync(string streamId, string streamType, IReadOnlyList<DomainEvent> events, CancellationToken ct = default)
+    public Task NotifyAsync(string streamId, IReadOnlyList<IEvent> events, CancellationToken ct = default)
     {
-        Calls.Add((streamId, streamType, events));
+        Calls.Add((streamId, events));
         return Task.CompletedTask;
     }
 }
@@ -52,9 +52,9 @@ public class EventSessionTests : IAsyncLifetime
         services.AddWincheEvents(opts =>
         {
             opts.ConnectionString = ConnectionString;
-            opts.AddEventType<OrderPlaced>();
-            opts.AddEventType<OrderShipped>();
-            opts.AddProjection<OrderProjection, OrderState>(ProjectionMode.Inline);
+            opts.AddEvent<OrderPlaced>();
+            opts.AddEvent<OrderShipped>();
+            opts.AddProjection<OrderProjection>(ProjectionMode.Inline);
         });
 
         var provider = services.BuildServiceProvider();
@@ -72,7 +72,7 @@ public class EventSessionTests : IAsyncLifetime
     public async Task AppendAsync_and_SaveChangesAsync_store_events_in_marten()
     {
         await using var session = await _eventStore.OpenSessionAsync();
-        await session.AppendAsync<OrderState>("orders/1", [new OrderPlaced("orders/1")]);
+        await session.AppendAsync("orders/1", [new OrderPlaced("orders/1")]);
         await session.SaveChangesAsync();
 
         using var readSession = _martenStore.QuerySession();
@@ -86,12 +86,11 @@ public class EventSessionTests : IAsyncLifetime
     {
         await using var session = await _eventStore.OpenSessionAsync();
         var placed = new OrderPlaced("orders/2");
-        await session.AppendAsync<OrderState>("orders/2", [placed]);
+        await session.AppendAsync("orders/2", [placed]);
         await session.SaveChangesAsync();
 
         _notifier.Calls.Should().HaveCount(1);
         _notifier.Calls[0].StreamId.Should().Be("orders/2");
-        _notifier.Calls[0].StreamType.Should().Be(nameof(OrderState));
         _notifier.Calls[0].Events.Should().ContainSingle().Which.Should().Be(placed);
     }
 
@@ -99,7 +98,7 @@ public class EventSessionTests : IAsyncLifetime
     public async Task LoadAsync_live_aggregation_folds_events_correctly()
     {
         await using var session = await _eventStore.OpenSessionAsync();
-        await session.AppendAsync<OrderState>("orders/3", [new OrderPlaced("orders/3"), new OrderShipped("orders/3")]);
+        await session.AppendAsync("orders/3", [new OrderPlaced("orders/3"), new OrderShipped("orders/3")]);
         await session.SaveChangesAsync();
 
         await using var readSession = await _eventStore.OpenSessionAsync();
@@ -114,7 +113,7 @@ public class EventSessionTests : IAsyncLifetime
     {
         await using (var session = await _eventStore.OpenSessionAsync())
         {
-            await session.AppendAsync<OrderState>("orders/4", [new OrderPlaced("orders/4")]);
+            await session.AppendAsync("orders/4", [new OrderPlaced("orders/4")]);
             // no SaveChangesAsync
         }
 
@@ -127,11 +126,11 @@ public class EventSessionTests : IAsyncLifetime
     public async Task AppendAsync_with_stale_expectedVersion_throws_on_SaveChangesAsync()
     {
         await using var setup = await _eventStore.OpenSessionAsync();
-        await setup.AppendAsync<OrderState>("orders/5", [new OrderPlaced("orders/5")]);
+        await setup.AppendAsync("orders/5", [new OrderPlaced("orders/5")]);
         await setup.SaveChangesAsync(); // stream now at version 1
 
         await using var conflictSession = await _eventStore.OpenSessionAsync();
-        await conflictSession.AppendAsync<OrderState>("orders/5", [new OrderShipped("orders/5")], expectedVersion: 0);
+        await conflictSession.AppendAsync("orders/5", [new OrderShipped("orders/5")], expectedVersion: 0);
 
         Func<Task> act = () => conflictSession.SaveChangesAsync();
         await act.Should().ThrowAsync<Exception>();

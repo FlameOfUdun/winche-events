@@ -10,12 +10,10 @@ public interface IAppendNotifier
 {
     /// <summary>Called once per <see cref="Session.IEventSession.SaveChangesAsync"/> for each stream that had events appended.</summary>
     /// <param name="streamId">The stream identifier.</param>
-    /// <param name="streamType">The aggregate type name associated with the stream.</param>
     /// <param name="events">The events that were committed.</param>
     /// <param name="ct">Cancellation token.</param>
     Task NotifyAsync(
         string streamId,
-        string streamType,
-        IReadOnlyList<DomainEvent> events,
+        IReadOnlyList<IEvent> events,
         CancellationToken ct = default);
 }

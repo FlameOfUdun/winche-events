@@ -8,28 +8,34 @@ using Xunit;
 
 namespace Winche.Events.Commands.Tests;
 
-record Widget(string Id, int Count) : DomainEvent;
-record WidgetCreated(string Id) : DomainEvent;
-record WidgetIncremented : DomainEvent;
+record Widget(int Count) : Aggregate;
+record WidgetCreated(string Id) : Event;
+record WidgetIncremented : Event;
 
 class CreateWidgetCommand(string Id) { public string Id { get; } = Id; }
 class IncrementWidgetCommand;
 
 class CreateWidgetHandler : ICommandHandler<CreateWidgetCommand, Widget>
 {
-    public Task<IEnumerable<DomainEvent>> HandleAsync(CreateWidgetCommand cmd, Widget? state, CancellationToken ct)
+    public Task<IEnumerable<IEvent>> HandleAsync(CreateWidgetCommand cmd, Widget? state, CancellationToken ct)
     {
         if (state != null) throw new InvalidOperationException("Widget already exists.");
-        return Task.FromResult<IEnumerable<DomainEvent>>([new WidgetCreated(cmd.Id)]);
+        return Task.FromResult<IEnumerable<IEvent>>([new WidgetCreated(cmd.Id)]);
     }
+}
+
+class ThrowingHandler : ICommandHandler<CreateWidgetCommand, Widget>
+{
+    public Task<IEnumerable<IEvent>> HandleAsync(CreateWidgetCommand cmd, Widget? state, CancellationToken ct)
+        => throw new InvalidOperationException("rejected");
 }
 
 class IncrementWidgetHandler : ICommandHandler<IncrementWidgetCommand, Widget>
 {
-    public Task<IEnumerable<DomainEvent>> HandleAsync(IncrementWidgetCommand cmd, Widget? state, CancellationToken ct)
+    public Task<IEnumerable<IEvent>> HandleAsync(IncrementWidgetCommand cmd, Widget? state, CancellationToken ct)
     {
-        if (state == null) return Task.FromResult(Enumerable.Empty<DomainEvent>());
-        return Task.FromResult<IEnumerable<DomainEvent>>([new WidgetIncremented()]);
+        if (state == null) return Task.FromResult(Enumerable.Empty<IEvent>());
+        return Task.FromResult<IEnumerable<IEvent>>([new WidgetIncremented()]);
     }
 }
 
@@ -59,18 +65,17 @@ public class CommandDispatcherTests
     [Fact]
     public async Task DispatchAsync_passes_null_state_to_handler_for_new_stream()
     {
-        // First call returns null (pre-append), second returns the created widget (post-commit)
         _session.LoadAsync<Widget>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(
                 Task.FromResult<Widget?>(null),
-                Task.FromResult<Widget?>(new Widget("widgets/1", 0)));
+                Task.FromResult<Widget?>(new Widget(0) { Id = "widgets/1" }));
 
         var dispatcher = BuildDispatcher();
-        await dispatcher.DispatchAsync<CreateWidgetCommand, Widget>("widgets/1", new CreateWidgetCommand("widgets/1"));
+        await dispatcher.DispatchAsync<Widget>("widgets/1", new CreateWidgetCommand("widgets/1"));
 
-        await _session.Received(1).AppendAsync<Widget>(
+        await _session.Received(1).AppendAsync(
             "widgets/1",
-            Arg.Is<IEnumerable<DomainEvent>>(e => e.OfType<WidgetCreated>().Any()),
+            Arg.Is<IEnumerable<IEvent>>(e => e.OfType<WidgetCreated>().Any()),
             null,
             Arg.Any<CancellationToken>());
     }
@@ -81,10 +86,10 @@ public class CommandDispatcherTests
         _session.LoadAsync<Widget>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(
                 Task.FromResult<Widget?>(null),
-                Task.FromResult<Widget?>(new Widget("widgets/2", 0)));
+                Task.FromResult<Widget?>(new Widget(0) { Id = "widgets/2" }));
 
         var dispatcher = BuildDispatcher();
-        await dispatcher.DispatchAsync<CreateWidgetCommand, Widget>("widgets/2", new CreateWidgetCommand("widgets/2"));
+        await dispatcher.DispatchAsync<Widget>("widgets/2", new CreateWidgetCommand("widgets/2"));
 
         await _session.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
     }
@@ -94,15 +99,15 @@ public class CommandDispatcherTests
     {
         _session.LoadAsync<Widget>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(
-                Task.FromResult<Widget?>(new Widget("widgets/3", 1)),
-                Task.FromResult<Widget?>(new Widget("widgets/3", 2)));
+                Task.FromResult<Widget?>(new Widget(1) { Id = "widgets/3" }),
+                Task.FromResult<Widget?>(new Widget(2) { Id = "widgets/3" }));
 
         var dispatcher = BuildDispatcher();
-        await dispatcher.DispatchAsync<IncrementWidgetCommand, Widget>("widgets/3", new IncrementWidgetCommand(), expectedVersion: 5);
+        await dispatcher.DispatchAsync<Widget>("widgets/3", new IncrementWidgetCommand(), expectedVersion: 5);
 
-        await _session.Received(1).AppendAsync<Widget>(
+        await _session.Received(1).AppendAsync(
             "widgets/3",
-            Arg.Any<IEnumerable<DomainEvent>>(),
+            Arg.Any<IEnumerable<Event>>(),
             (long?)5,
             Arg.Any<CancellationToken>());
     }
@@ -110,16 +115,50 @@ public class CommandDispatcherTests
     [Fact]
     public async Task DispatchAsync_returns_updated_state_after_commit()
     {
-        var updatedWidget = new Widget("widgets/4", 99);
+        var updatedWidget = new Widget(99) { Id = "widgets/4" };
         _session.LoadAsync<Widget>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(
                 Task.FromResult<Widget?>(null),
                 Task.FromResult<Widget?>(updatedWidget));
 
         var dispatcher = BuildDispatcher();
-        var result = await dispatcher.DispatchAsync<CreateWidgetCommand, Widget>("widgets/4", new CreateWidgetCommand("widgets/4"));
+        var result = await dispatcher.DispatchAsync<Widget>("widgets/4", new CreateWidgetCommand("widgets/4"));
 
         result.Should().Be(updatedWidget);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_propagates_handler_exception_without_calling_AppendAsync()
+    {
+        _session.LoadAsync<Widget>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Widget?>(null));
+
+        var dispatcher = new CommandDispatcher(_store, type =>
+        {
+            if (type == typeof(ICommandHandler<CreateWidgetCommand, Widget>))
+                return new ThrowingHandler();
+            throw new InvalidOperationException($"No handler for {type}");
+        });
+
+        var act = () => dispatcher.DispatchAsync<Widget>("widgets/x", new CreateWidgetCommand("widgets/x"));
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("rejected");
+
+        await _session.DidNotReceive().AppendAsync(
+            Arg.Any<string>(), Arg.Any<IEnumerable<IEvent>>(),
+            Arg.Any<long?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DispatchAsync_propagates_exception_when_no_handler_is_registered()
+    {
+        _session.LoadAsync<Widget>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<Widget?>(null));
+
+        var dispatcher = new CommandDispatcher(_store,
+            _ => throw new InvalidOperationException("No handler registered"));
+
+        var act = () => dispatcher.DispatchAsync<Widget>("widgets/x", new CreateWidgetCommand("widgets/x"));
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("No handler registered");
     }
 
     [Fact]
@@ -128,10 +167,10 @@ public class CommandDispatcherTests
         _session.LoadAsync<Widget>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(
                 Task.FromResult<Widget?>(null),
-                Task.FromResult<Widget?>(new Widget("widgets/5", 0)));
+                Task.FromResult<Widget?>(new Widget(0) { Id = "widgets/5" }));
 
         var dispatcher = BuildDispatcher();
-        await dispatcher.DispatchAsync<CreateWidgetCommand, Widget>("widgets/5", new CreateWidgetCommand("widgets/5"));
+        await dispatcher.DispatchAsync<Widget>("widgets/5", new CreateWidgetCommand("widgets/5"));
 
         await _session.Received(1).DisposeAsync();
     }
