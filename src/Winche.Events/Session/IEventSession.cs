@@ -12,7 +12,7 @@ public interface IEventSession : IAsyncDisposable
     /// Buffers <paramref name="events"/> to be appended to <paramref name="streamId"/> on the next
     /// <see cref="SaveChangesAsync"/>.
     /// </summary>
-    Task AppendAsync(
+    Task AppendStreamAsync(
         string streamId,
         IEnumerable<IEvent> events,
         long? expectedVersion = null,
@@ -24,7 +24,7 @@ public interface IEventSession : IAsyncDisposable
     /// For Inline projections the document is always current after <see cref="SaveChangesAsync"/>.
     /// For Async projections the document is eventually consistent.
     /// </summary>
-    Task<TAggregate?> LoadAsync<TAggregate>(
+    Task<TAggregate?> GetStateAsync<TAggregate>(
         string streamId,
         CancellationToken ct = default) where TAggregate : class, IAggregate;
 
@@ -39,6 +39,14 @@ public interface IEventSession : IAsyncDisposable
     Task<TAggregate?> LoadFreshAsync<TAggregate>(
         string streamId,
         TimeSpan timeout = default,
+        CancellationToken ct = default) where TAggregate : class, IAggregate;
+
+    /// <summary>
+    /// Returns the <c>mt_streams</c> row for <paramref name="streamId"/> combined with the current
+    /// projected aggregate document. Returns <c>null</c> if the stream does not exist.
+    /// </summary>
+    Task<StreamEnvelope<TAggregate>?> GetStreamAsync<TAggregate>(
+        string streamId,
         CancellationToken ct = default) where TAggregate : class, IAggregate;
 
     /// <summary>

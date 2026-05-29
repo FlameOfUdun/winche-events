@@ -30,12 +30,12 @@ public class CommandDispatcherTests
     [Fact]
     public async Task DispatchAsync_passes_null_state_to_handler_for_new_stream()
     {
-        _session.LoadAsync<Thing>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _session.GetStateAsync<Thing>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Thing?>(null));
 
         await BuildDispatcher().DispatchAsync("things/1", new CreateThing("things/1"));
 
-        await _session.Received(1).AppendAsync(
+        await _session.Received(1).AppendStreamAsync(
             "things/1",
             Arg.Is<IEnumerable<IEvent>>(e => e.OfType<ThingCreated>().Any()),
             null,
@@ -45,7 +45,7 @@ public class CommandDispatcherTests
     [Fact]
     public async Task DispatchAsync_calls_SaveChangesAsync()
     {
-        _session.LoadAsync<Thing>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _session.GetStateAsync<Thing>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Thing?>(null));
 
         await BuildDispatcher().DispatchAsync("things/2", new CreateThing("things/2"));
@@ -56,12 +56,12 @@ public class CommandDispatcherTests
     [Fact]
     public async Task DispatchAsync_passes_expectedVersion_to_AppendAsync()
     {
-        _session.LoadAsync<Thing>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _session.GetStateAsync<Thing>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Thing?>(new Thing("exists") { Id = "things/3" }));
 
         await BuildDispatcher().DispatchAsync("things/3", new ActivateThing("things/3"), expectedVersion: 5);
 
-        await _session.Received(1).AppendAsync(
+        await _session.Received(1).AppendStreamAsync(
             "things/3",
             Arg.Any<IEnumerable<IEvent>>(),
             (long?)5,
@@ -71,26 +71,26 @@ public class CommandDispatcherTests
     [Fact]
     public async Task DispatchAsync_does_not_return_state_and_LoadAsync_called_once()
     {
-        _session.LoadAsync<Thing>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _session.GetStateAsync<Thing>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Thing?>(null));
 
         await BuildDispatcher().DispatchAsync("things/4", new CreateThing("things/4"));
 
         // LoadAsync called only once (pre-dispatch), not again after commit
-        await _session.Received(1).LoadAsync<Thing>(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _session.Received(1).GetStateAsync<Thing>(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
     public async Task DispatchAsync_propagates_handler_exception_without_appending()
     {
-        _session.LoadAsync<Thing>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _session.GetStateAsync<Thing>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Thing?>(new Thing("exists") { Id = "things/x" }));
 
         // CreateThing handler throws when state is not null
         var act = () => BuildDispatcher().DispatchAsync("things/x", new CreateThing("things/x"));
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Already exists.");
 
-        await _session.DidNotReceive().AppendAsync(
+        await _session.DidNotReceive().AppendStreamAsync(
             Arg.Any<string>(), Arg.Any<IEnumerable<IEvent>>(),
             Arg.Any<long?>(), Arg.Any<CancellationToken>());
     }
@@ -98,7 +98,7 @@ public class CommandDispatcherTests
     [Fact]
     public async Task DispatchAsync_propagates_exception_when_no_handler_registered()
     {
-        _session.LoadAsync<Thing>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _session.GetStateAsync<Thing>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Thing?>(null));
 
         var sp = Substitute.For<IServiceProvider>(); // returns null for all GetService
@@ -111,7 +111,7 @@ public class CommandDispatcherTests
     [Fact]
     public async Task DispatchAsync_disposes_session()
     {
-        _session.LoadAsync<Thing>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _session.GetStateAsync<Thing>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromResult<Thing?>(null));
 
         await BuildDispatcher().DispatchAsync("things/5", new CreateThing("things/5"));

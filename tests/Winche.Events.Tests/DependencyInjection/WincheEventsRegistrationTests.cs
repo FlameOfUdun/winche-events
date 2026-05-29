@@ -59,7 +59,7 @@ public class WincheEventsRegistrationTests : IAsyncLifetime
         await martenStore.Storage.ApplyAllConfiguredChangesToDatabaseAsync();
 
         await using var session = await eventStore.OpenSessionAsync();
-        await session.AppendAsync("alias-test/1", [new AliasedEvent()]);
+        await session.AppendStreamAsync("alias-test/1", [new AliasedEvent()]);
         await session.SaveChangesAsync();
 
         using var q = martenStore.QuerySession();

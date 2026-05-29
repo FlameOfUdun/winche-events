@@ -23,10 +23,10 @@ internal sealed class CommandDispatcher : ICommandDispatcher
         where TAggregate : class, IAggregate
     {
         await using var session = await _eventStore.OpenSessionAsync(ct: ct);
-        var state   = await session.LoadAsync<TAggregate>(streamId, ct);
+        var state   = await session.GetStateAsync<TAggregate>(streamId, ct);
         var handler = _serviceProvider.GetRequiredService<CommandHandler<TAggregate>>();
         var events  = await handler.HandleAsync(state, command, ct);
-        await session.AppendAsync(streamId, events, expectedVersion, ct);
+        await session.AppendStreamAsync(streamId, events, expectedVersion, ct);
         await session.SaveChangesAsync(ct);
     }
 }

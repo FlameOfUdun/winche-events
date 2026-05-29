@@ -11,7 +11,7 @@ public interface ICommandDispatcher
     /// <summary>
     /// Loads the current aggregate state, calls the registered <see cref="CommandHandler{TAggregate}"/>,
     /// appends the produced events, and commits. Does not return state — call
-    /// <see cref="Session.IEventSession.LoadAsync{TAggregate}"/> explicitly if you need state after dispatch.
+    /// <see cref="Session.IEventSession.GetStateAsync{TAggregate}"/> explicitly if you need state after dispatch.
     /// <typeparamref name="TAggregate"/> is inferred from the command's <c>ICommand&lt;TAggregate&gt;</c>
     /// implementation — no explicit type argument needed at the call site.
     /// </summary>

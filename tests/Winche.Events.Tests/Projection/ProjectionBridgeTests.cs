@@ -13,6 +13,7 @@ public class ProjectionBridgeTests
     {
         var e = Substitute.For<JasperFxEvent>();
         e.Data.Returns(data);
+        e.Id.Returns(Guid.Empty);
         e.Version.Returns(version);
         e.Timestamp.Returns(new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero));
         return e;
@@ -52,6 +53,7 @@ public class ProjectionBridgeTests
         var bridge = new AsyncProjectionBridge<Counter>(meta);
         var jasperEvent = Substitute.For<JasperFxEvent>();
         jasperEvent.Data.Returns(new Incremented());
+        jasperEvent.Id.Returns(Guid.Empty);
         jasperEvent.Version.Returns(7L);
         jasperEvent.Timestamp.Returns(ts);
 

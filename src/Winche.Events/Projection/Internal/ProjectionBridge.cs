@@ -14,7 +14,7 @@ internal sealed class InlineProjectionBridge<TAggregate>(Projection<TAggregate> 
     private readonly Projection<TAggregate> _projection = projection;
 
     private static EventEnvelope<IEvent> ToEnvelope(string streamId, JasperFxEvent e)
-        => new(streamId, (IEvent)e.Data, e.Version, e.Timestamp);
+        => new(e.Id.ToString(), streamId, (IEvent)e.Data, e.Version, e.Timestamp, e.Sequence, e.EventTypeName, e.DotNetTypeName);
 
     public override TAggregate? Evolve(TAggregate? snapshot, string id, JasperFxEvent @event)
     {
@@ -30,7 +30,7 @@ internal sealed class AsyncProjectionBridge<TAggregate>(Projection<TAggregate> p
     private readonly Projection<TAggregate> _projection = projection;
 
     private static EventEnvelope<IEvent> ToEnvelope(string streamId, JasperFxEvent e)
-        => new(streamId, (IEvent)e.Data, e.Version, e.Timestamp);
+        => new(e.Id.ToString(), streamId, (IEvent)e.Data, e.Version, e.Timestamp, e.Sequence, e.EventTypeName, e.DotNetTypeName);
 
     public override async ValueTask<TAggregate?> EvolveAsync(
         TAggregate? snapshot, string id,

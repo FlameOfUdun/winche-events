@@ -70,7 +70,7 @@ public class EventEnvelopeTests
     {
         var ts = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var data = new Incremented();
-        var envelope = new EventEnvelope<Incremented>("counters/1", data, 3, ts);
+        var envelope = new EventEnvelope<Incremented>(Guid.Empty.ToString(), "counters/1", data, 3, ts, 0, "", "");
 
         envelope.StreamId.Should().Be("counters/1");
         envelope.Data.Should().BeSameAs(data);
@@ -79,20 +79,88 @@ public class EventEnvelopeTests
     }
 
     [Fact]
+    public void EventEnvelope_exposes_all_fields()
+    {
+        var id = Guid.NewGuid().ToString();
+        var ts = new DateTimeOffset(2026, 3, 15, 9, 0, 0, TimeSpan.Zero);
+        var data = new Incremented();
+        var envelope = new EventEnvelope<Incremented>(id, "counters/5", data, 7, ts, 42, "incremented", "MyApp.Incremented, MyApp");
+
+        envelope.Id.Should().Be(id);
+        envelope.StreamId.Should().Be("counters/5");
+        envelope.Data.Should().BeSameAs(data);
+        envelope.Version.Should().Be(7);
+        envelope.Timestamp.Should().Be(ts);
+        envelope.Sequence.Should().Be(42);
+        envelope.TypeAlias.Should().Be("incremented");
+        envelope.DotNetType.Should().Be("MyApp.Incremented, MyApp");
+    }
+
+    [Fact]
     public void EventEnvelope_IEvent_holds_base_typed_data()
     {
         var data = new Incremented();
-        var envelope = new EventEnvelope<IEvent>("counters/1", data, 1, DateTimeOffset.UtcNow);
+        var envelope = new EventEnvelope<IEvent>(Guid.Empty.ToString(), "counters/1", data, 1, DateTimeOffset.UtcNow, 0, "", "");
 
         envelope.Data.Should().BeSameAs(data);
         envelope.Data.Should().BeOfType<Incremented>();
+    }
+
+    [Fact]
+    public void OfEventType_filters_to_matching_type()
+    {
+        var envelopes = new List<EventEnvelope<IEvent>>
+        {
+            new(Guid.Empty.ToString(), "s", new Incremented(), 1, DateTimeOffset.UtcNow, 1, "", ""),
+            new(Guid.Empty.ToString(), "s", new Decremented(), 2, DateTimeOffset.UtcNow, 2, "", ""),
+            new(Guid.Empty.ToString(), "s", new Incremented(), 3, DateTimeOffset.UtcNow, 3, "", ""),
+        };
+
+        var result = envelopes.OfEventType<Incremented>().ToList();
+
+        result.Should().HaveCount(2);
+        result.Should().AllSatisfy(e => e.Data.Should().BeOfType<Incremented>());
+    }
+
+    [Fact]
+    public void OfEventType_preserves_all_envelope_fields()
+    {
+        var id = Guid.NewGuid().ToString();
+        var ts = new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero);
+        var data = new Incremented();
+        var envelopes = new List<EventEnvelope<IEvent>>
+        {
+            new(id, "counters/9", data, 5, ts, 99, "incremented", "MyApp.Incremented"),
+        };
+
+        var typed = envelopes.OfEventType<Incremented>().Single();
+
+        typed.Id.Should().Be(id);
+        typed.StreamId.Should().Be("counters/9");
+        typed.Data.Should().BeSameAs(data);
+        typed.Version.Should().Be(5);
+        typed.Timestamp.Should().Be(ts);
+        typed.Sequence.Should().Be(99);
+        typed.TypeAlias.Should().Be("incremented");
+        typed.DotNetType.Should().Be("MyApp.Incremented");
+    }
+
+    [Fact]
+    public void OfEventType_returns_empty_when_no_match()
+    {
+        var envelopes = new List<EventEnvelope<IEvent>>
+        {
+            new(Guid.Empty.ToString(), "s", new Decremented(), 1, DateTimeOffset.UtcNow, 1, "", ""),
+        };
+
+        envelopes.OfEventType<Incremented>().Should().BeEmpty();
     }
 }
 
 public class ProjectionTests
 {
     private static EventEnvelope<IEvent> Envelope(IEvent data, string streamId = "test", long version = 1)
-        => new(streamId, data, version, DateTimeOffset.UtcNow);
+        => new(Guid.Empty.ToString(), streamId, data, version, DateTimeOffset.UtcNow, 0, "", "");
 
     [Fact]
     public void Create_returns_initial_state()
@@ -155,7 +223,7 @@ public class ProjectionTests
     {
         var ts = new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero);
         var p = new MetadataProjection();
-        var result = p.ApplyEvent(p.Create("counters/99"), new EventEnvelope<IEvent>("counters/99", new Incremented(), 7, ts));
+        var result = p.ApplyEvent(p.Create("counters/99"), new EventEnvelope<IEvent>(Guid.Empty.ToString(), "counters/99", new Incremented(), 7, ts, 0, "", ""));
 
         p.LastStreamId.Should().Be("counters/99");
         p.LastVersion.Should().Be(7);

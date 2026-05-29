@@ -26,7 +26,7 @@ internal sealed class EventSession : IEventSession
         _logger = logger;
     }
 
-    public Task AppendAsync(
+    public Task AppendStreamAsync(
         string streamId,
         IEnumerable<IEvent> events,
         long? expectedVersion = null,
@@ -41,7 +41,7 @@ internal sealed class EventSession : IEventSession
         return Task.CompletedTask;
     }
 
-    public Task<TAggregate?> LoadAsync<TAggregate>(
+    public Task<TAggregate?> GetStateAsync<TAggregate>(
         string streamId,
         CancellationToken ct = default) where TAggregate : class, IAggregate
         => _session.LoadAsync<TAggregate>(streamId, ct);
@@ -56,12 +56,29 @@ internal sealed class EventSession : IEventSession
         return await _session.LoadAsync<TAggregate>(streamId, ct);
     }
 
+    public async Task<StreamEnvelope<TAggregate>?> GetStreamAsync<TAggregate>(
+        string streamId,
+        CancellationToken ct = default) where TAggregate : class, IAggregate
+    {
+        var state = await _session.Events.FetchStreamStateAsync(streamId, ct);
+        if (state is null) return null;
+        var aggregate = await _session.LoadAsync<TAggregate>(streamId, ct);
+        return new StreamEnvelope<TAggregate>(
+            streamId,
+            aggregate,
+            state.Version,
+            state.Created,
+            state.LastTimestamp,
+            state.IsArchived,
+            state.AggregateType?.Name ?? string.Empty);
+    }
+
     public async Task<IReadOnlyList<EventEnvelope<IEvent>>> GetEventsAsync(
         string streamId,
         CancellationToken ct = default)
     {
         var raw = await _session.Events.FetchStreamAsync(streamId, token: ct);
-        return [..raw.Select(e => new EventEnvelope<IEvent>(streamId, (IEvent)e.Data, e.Version, e.Timestamp))];
+        return [..raw.Select(e => new EventEnvelope<IEvent>(e.Id.ToString(), streamId, (IEvent)e.Data, e.Version, e.Timestamp, e.Sequence, e.EventTypeName, e.DotNetTypeName))];
     }
 
     public async Task SaveChangesAsync(CancellationToken ct = default)

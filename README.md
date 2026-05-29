@@ -8,7 +8,7 @@ A [Marten](https://martendb.io/)-backed event sourcing library for .NET 10. Prov
 
 | Package | Purpose |
 | --- | --- |
-| `Winche.Events.Abstractions` | Base types: `IAggregate`, `Aggregate`, `IEvent`, `Event`, `ICommand<TAggregate>`, `Command<TAggregate>`, `EventEnvelope<TEvent>` |
+| `Winche.Events.Abstractions` | Base types: `IAggregate`, `Aggregate`, `IEvent`, `Event`, `ICommand<TAggregate>`, `Command<TAggregate>`, `EventEnvelope<TEvent>`, `StreamEnvelope<TAggregate>` |
 | `Winche.Events` | Core: event store, sessions, projections, notifiers |
 | `Winche.Events.Commands` | Optional: command handlers and dispatcher |
 
@@ -116,10 +116,10 @@ services.AddWincheEvents(opts =>
 ```csharp
 await using var session = await store.OpenSessionAsync();
 
-await session.AppendAsync("orders/123", [new OrderPlaced("orders/123", 49.99m)]);
+await session.AppendStreamAsync("orders/123", [new OrderPlaced("orders/123", 49.99m)]);
 await session.SaveChangesAsync();
 
-var order = await session.LoadAsync<Order>("orders/123");
+var order = await session.GetStateAsync<Order>("orders/123");
 // order.Status == "placed"
 ```
 
@@ -147,25 +147,25 @@ opts.AddProjection<OrderReadModel, OrderSummary>(ProjectionMode.Async);
 
 `IEventSession` is a unit of work scoped to a single PostgreSQL connection. Always dispose with `await using`.
 
-### AppendAsync
+### AppendStreamAsync
 
 ```csharp
-await session.AppendAsync("orders/123", [new OrderPlaced("orders/123", 49.99m)]);
+await session.AppendStreamAsync("orders/123", [new OrderPlaced("orders/123", 49.99m)]);
 ```
 
 **Optimistic concurrency** — pass `expectedVersion` to reject concurrent writes:
 
 ```csharp
-await session.AppendAsync("orders/123", events, expectedVersion: 3);
+await session.AppendStreamAsync("orders/123", events, expectedVersion: 3);
 // Marten throws if the stream's current version doesn't match.
 ```
 
-### LoadAsync
+### GetStateAsync
 
 Reads the stored aggregate document. For `Inline` projections this is always fresh after commit. For `Async` projections it reflects the last time the daemon ran.
 
 ```csharp
-var order = await session.LoadAsync<Order>("orders/123");
+var order = await session.GetStateAsync<Order>("orders/123");
 ```
 
 ### LoadFreshAsync
@@ -177,15 +177,41 @@ var order = await session.LoadFreshAsync<Order>("orders/123");                  
 var order = await session.LoadFreshAsync<Order>("orders/123", TimeSpan.FromSeconds(10));
 ```
 
+### GetStreamAsync
+
+Returns a `StreamEnvelope<TAggregate>` combining the stream row from `mt_streams` with the current projected aggregate document. Returns `null` if the stream does not exist.
+
+```csharp
+var envelope = await session.GetStreamAsync<Order>("orders/123");
+
+if (envelope is not null)
+{
+    // envelope.Id           — stream identifier
+    // envelope.Aggregate    — current projected document (null if no projection stored yet)
+    // envelope.Version      — total events appended
+    // envelope.Created      — when the stream was first written
+    // envelope.LastModified — when the stream last received an event
+    // envelope.IsArchived   — whether the stream is archived
+    // envelope.AggregateType — aggregate type name from mt_streams
+}
+```
+
 ### GetEventsAsync
 
-Returns all events for a stream in order, each wrapped with metadata.
+Returns all events for a stream in order, each wrapped as `EventEnvelope<IEvent>`.
 
 ```csharp
 var events = await session.GetEventsAsync("orders/123");
 
 foreach (var e in events)
     Console.WriteLine($"v{e.Version} [{e.Timestamp:u}] {e.Data.GetType().Name}");
+```
+
+Use `OfEventType<TEvent>()` to filter and cast to a specific event type:
+
+```csharp
+var placed = events.OfEventType<OrderPlaced>();
+// Each element is EventEnvelope<OrderPlaced> with strongly-typed e.Data
 ```
 
 ### SaveChangesAsync
@@ -200,25 +226,50 @@ await session.SaveChangesAsync();
 
 ## EventEnvelope\<TEvent\>
 
-Projection handlers receive `EventEnvelope<TEvent>` rather than the raw event. This gives access to both the typed payload and stream metadata.
+Projection handlers receive `EventEnvelope<TEvent>` rather than the raw event. It carries the full row from `mt_events`.
 
 ```csharp
 public sealed record EventEnvelope<TEvent>(
-    string StreamId,
-    TEvent Data,
-    long Version,
-    DateTimeOffset Timestamp) where TEvent : IEvent;
+    string Id,           // event UUID as string
+    string StreamId,     // stream identifier
+    TEvent Data,         // strongly-typed event payload
+    long Version,        // 1-based position within the stream
+    DateTimeOffset Timestamp, // when the event was committed (UTC)
+    long Sequence,       // global sequence number across all streams
+    string TypeAlias,    // value in the mt_events.type column
+    string DotNetType    // value in the mt_events.dotnet_type column
+) where TEvent : IEvent;
 ```
 
 ```csharp
 On<OrderPlaced>((state, e) =>
 {
+    // e.Id          — event UUID (string)
     // e.Data        — strongly typed OrderPlaced
     // e.Version     — position in the stream (1-based)
     // e.Timestamp   — when the event was committed
     // e.StreamId    — the stream identifier
+    // e.Sequence    — global order across all streams
+    // e.TypeAlias   — e.g. "order_placed"
+    // e.DotNetType  — e.g. "MyApp.OrderPlaced, MyApp"
     return state with { Status = "placed", Total = e.Data.Total };
 });
+```
+
+## StreamEnvelope\<TAggregate\>
+
+Returned by `GetStreamAsync`. Combines the `mt_streams` row with the current projected document.
+
+```csharp
+public sealed record StreamEnvelope<TAggregate>(
+    string Id,                  // stream identifier
+    TAggregate? Aggregate,      // projected document (null if none stored yet)
+    long Version,               // total events in the stream
+    DateTimeOffset Created,     // when the stream was first written (UTC)
+    DateTimeOffset LastModified,// when the stream last received an event (UTC)
+    bool IsArchived,            // whether the stream is archived
+    string AggregateType        // aggregate type name from mt_streams.type
+) where TAggregate : class, IAggregate;
 ```
 
 ---
@@ -342,7 +393,7 @@ await dispatcher.DispatchAsync("orders/123", new PlaceOrderCommand("orders/123",
 await dispatcher.DispatchAsync("orders/123", new PlaceOrderCommand("orders/123", 49.99m));
 
 await using var session = await store.OpenSessionAsync();
-var order = await session.LoadAsync<Order>("orders/123");
+var order = await session.GetStateAsync<Order>("orders/123");
 ```
 
 **Dispatch flow:**

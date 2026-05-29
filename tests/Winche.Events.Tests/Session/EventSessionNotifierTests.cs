@@ -26,7 +26,7 @@ public class EventSessionNotifierTests
             .Returns(Task.FromException(new InvalidOperationException("notifier blew up")));
 
         var session = BuildSession(notifier);
-        await session.AppendAsync("stream/1", [new TestEvent()]);
+        await session.AppendStreamAsync("stream/1", [new TestEvent()]);
 
         var act = () => session.SaveChangesAsync();
         await act.Should().NotThrowAsync();
@@ -42,7 +42,7 @@ public class EventSessionNotifierTests
         var succeeding = Substitute.For<IAppendNotifier>();
 
         var session = BuildSession(failing, succeeding);
-        await session.AppendAsync("stream/1", [new TestEvent()]);
+        await session.AppendStreamAsync("stream/1", [new TestEvent()]);
         await session.SaveChangesAsync();
 
         await succeeding.Received(1).NotifyAsync("stream/1", Arg.Any<IReadOnlyList<IEvent>>(), Arg.Any<CancellationToken>());
@@ -65,8 +65,8 @@ public class EventSessionNotifierTests
         var notifier = Substitute.For<IAppendNotifier>();
 
         var session = BuildSession(notifier);
-        await session.AppendAsync("stream/1", [new TestEvent()]);
-        await session.AppendAsync("stream/2", [new TestEvent()]);
+        await session.AppendStreamAsync("stream/1", [new TestEvent()]);
+        await session.AppendStreamAsync("stream/2", [new TestEvent()]);
         await session.SaveChangesAsync();
 
         await notifier.Received(1).NotifyAsync("stream/1", Arg.Any<IReadOnlyList<IEvent>>(), Arg.Any<CancellationToken>());

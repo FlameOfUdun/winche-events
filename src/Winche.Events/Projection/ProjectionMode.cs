@@ -5,7 +5,7 @@ public enum ProjectionMode
 {
     /// <summary>
     /// Updated synchronously within the same transaction as the appended events.
-    /// <see cref="Session.IEventSession.LoadAsync{TAggregate}"/> returns the fresh document immediately.
+    /// <see cref="Session.IEventSession.GetStateAsync{TAggregate}"/> returns the fresh document immediately.
     /// Handlers registered with <c>On&lt;TEvent&gt;</c> must not perform external I/O — they run inside
     /// the open PostgreSQL transaction.
     /// </summary>

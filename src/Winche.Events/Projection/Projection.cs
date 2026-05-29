@@ -19,13 +19,13 @@ public abstract class Projection<TAggregate> : ProjectionBase where TAggregate :
     protected void On<TEvent>(Func<TAggregate, EventEnvelope<TEvent>, TAggregate> handler)
         where TEvent : IEvent
         => _syncHandlers[typeof(TEvent)] = (state, e) =>
-            handler(state, new EventEnvelope<TEvent>(e.StreamId, (TEvent)e.Data, e.Version, e.Timestamp));
+            handler(state, new EventEnvelope<TEvent>(e.Id, e.StreamId, (TEvent)e.Data, e.Version, e.Timestamp, e.Sequence, e.TypeAlias, e.DotNetType));
 
     /// <summary>Registers an asynchronous handler for <typeparamref name="TEvent"/>.</summary>
     protected void On<TEvent>(Func<TAggregate, EventEnvelope<TEvent>, Task<TAggregate>> handler)
         where TEvent : IEvent
         => _asyncHandlers[typeof(TEvent)] = (state, e) =>
-            handler(state, new EventEnvelope<TEvent>(e.StreamId, (TEvent)e.Data, e.Version, e.Timestamp));
+            handler(state, new EventEnvelope<TEvent>(e.Id, e.StreamId, (TEvent)e.Data, e.Version, e.Timestamp, e.Sequence, e.TypeAlias, e.DotNetType));
 
     internal TAggregate ApplyEvent(TAggregate state, EventEnvelope<IEvent> envelope)
     {

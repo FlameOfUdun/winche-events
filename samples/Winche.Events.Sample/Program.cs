@@ -45,19 +45,19 @@ var orderId = $"orders/{Guid.NewGuid():N}";
 logger.LogInformation("=== Place order ===");
 await dispatcher.DispatchAsync(orderId, new PlaceOrderCommand(orderId, 99.99m));
 await using var s1 = await eventStore.OpenSessionAsync();
-var order = await s1.LoadAsync<Order>(orderId);
+var order = await s1.GetStateAsync<Order>(orderId);
 logger.LogInformation("After place: status={Status} total={Total}", order?.Status, order?.Total);
 
 logger.LogInformation("=== Ship order ===");
 await dispatcher.DispatchAsync(orderId, new ShipOrderCommand(orderId));
 await using var s2 = await eventStore.OpenSessionAsync();
-order = await s2.LoadAsync<Order>(orderId);
+order = await s2.GetStateAsync<Order>(orderId);
 logger.LogInformation("After ship: status={Status}", order?.Status);
 
 logger.LogInformation("=== Cancel directly ===");
 await using (var session = await eventStore.OpenSessionAsync())
 {
-    await session.AppendAsync(orderId, [new OrderCancelled(orderId)]);
+    await session.AppendStreamAsync(orderId, [new OrderCancelled(orderId)]);
     await session.SaveChangesAsync();
 }
 
