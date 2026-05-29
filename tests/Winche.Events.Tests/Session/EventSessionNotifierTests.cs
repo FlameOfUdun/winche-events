@@ -14,11 +14,9 @@ record TestEvent : Event;
 public class EventSessionNotifierTests
 {
     private readonly IDocumentSession _martenSession = Substitute.For<IDocumentSession>();
-    private readonly IServiceProvider _serviceProvider = Substitute.For<IServiceProvider>();
 
     private EventSession BuildSession(params IAppendNotifier[] notifiers) =>
-        new(_martenSession, _serviceProvider, new HashSet<Type>(), notifiers,
-            NullLogger<EventSession>.Instance);
+        new(_martenSession, Substitute.For<IDocumentStore>(), notifiers, NullLogger<EventSession>.Instance);
 
     [Fact]
     public async Task SaveChangesAsync_does_not_throw_when_a_notifier_fails()

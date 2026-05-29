@@ -1,9 +1,18 @@
 using System.Text.Json;
+using JasperFx.Events.Projections;
+using Marten;
 using Winche.Events.Abstractions;
 using Winche.Events.Notification;
 using Winche.Events.Projection;
+using Marten.Events.Aggregation;
+using Winche.Events.Projection.Internal;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Winche.Events.DependencyInjection;
+
+internal sealed record ProjectionRegistration(
+    Action<IServiceCollection> Register,
+    Action<StoreOptions, IServiceProvider> Configure);
 
 /// <summary>Configuration options for <c>AddWincheEvents</c>.</summary>
 public sealed class WincheEventsOptions
@@ -12,20 +21,16 @@ public sealed class WincheEventsOptions
     public string ConnectionString { get; set; } = string.Empty;
 
     internal readonly List<(Type EventType, string? Alias)> EventTypes = [];
-    internal readonly List<(ProjectionBase Projection, ProjectionMode Mode)> Projections = [];
+    internal readonly List<ProjectionRegistration> Projections = [];
     internal readonly List<Type> NotifierTypes = [];
 
     /// <summary>
-    /// Configures the <see cref="JsonSerializerOptions"/> used by Marten
-    /// for event serialization.  Use this to register custom converters or change the
-    /// naming policy.  When <see langword="null"/> Marten's default camelCase settings apply.
+    /// Configures the <see cref="JsonSerializerOptions"/> used by Marten for event serialization.
+    /// When <see langword="null"/> Marten's default camelCase settings apply.
     /// </summary>
     public Action<JsonSerializerOptions>? ConfigureJsonSerializer { get; set; }
 
-    /// <summary>
-    /// Registers an event type.  Marten derives the stored type alias from the class name
-    /// (e.g. <c>OrderPlaced</c> → <c>order_placed</c>).
-    /// </summary>
+    /// <summary>Registers an event type. Marten derives the stored alias from the class name.</summary>
     public void AddEvent<TEvent>() where TEvent : class, IEvent
         => EventTypes.Add((typeof(TEvent), null));
 
@@ -38,12 +43,35 @@ public sealed class WincheEventsOptions
         => EventTypes.Add((typeof(TEvent), alias));
 
     /// <summary>
-    /// Registers a projection with the specified lifecycle mode.
+    /// Registers a projection. Both type parameters and the projection mode are explicit —
+    /// no runtime type discovery occurs.
     /// </summary>
-    /// <typeparam name="TProjection">The projection class, which must inherit from <c>Projection&lt;TAggregate&gt;</c>.</typeparam>
-    /// <param name="mode">Controls when the aggregate document is built from events.</param>
-    public void AddProjection<TProjection>(ProjectionMode mode) where TProjection : ProjectionBase, new()
-        => Projections.Add((new TProjection(), mode));
+    /// <typeparam name="TProjection">Concrete projection class inheriting <c>Projection&lt;TAggregate&gt;</c>.</typeparam>
+    /// <typeparam name="TAggregate">The aggregate type produced by this projection.</typeparam>
+    /// <param name="mode">
+    /// <see cref="ProjectionMode.Inline"/>: updated in the same transaction; handlers must not do external I/O.<br/>
+    /// <see cref="ProjectionMode.Async"/>: updated by the background daemon; handlers may do external I/O.
+    /// </param>
+    public void AddProjection<TProjection, TAggregate>(ProjectionMode mode)
+        where TProjection : Projection<TAggregate>
+        where TAggregate : class, IAggregate
+    {
+        var lifecycle = mode == ProjectionMode.Inline
+            ? ProjectionLifecycle.Inline
+            : ProjectionLifecycle.Async;
+
+        Projections.Add(new ProjectionRegistration(
+            Register: services => services.AddSingleton<Projection<TAggregate>, TProjection>(),
+            Configure: (opts, sp) =>
+            {
+                var projection = sp.GetRequiredService<Projection<TAggregate>>();
+                SingleStreamProjection<TAggregate, string> bridge = lifecycle == ProjectionLifecycle.Inline
+                    ? new InlineProjectionBridge<TAggregate>(projection)
+                    : new AsyncProjectionBridge<TAggregate>(projection);
+                opts.Projections.AddGlobalProjection<TAggregate, string>(bridge, lifecycle);
+            }
+        ));
+    }
 
     /// <summary>Registers a post-commit notifier. Multiple notifiers can be registered.</summary>
     public void AddNotifier<TNotifier>() where TNotifier : class, IAppendNotifier

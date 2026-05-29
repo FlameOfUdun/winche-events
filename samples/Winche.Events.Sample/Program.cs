@@ -1,9 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Winche.Events.Abstractions;
 using Winche.Events.Commands;
 using Winche.Events.Commands.DependencyInjection;
 using Winche.Events.DependencyInjection;
-using Winche.Events.Abstractions;
 using Winche.Events.Notification;
 using Winche.Events.Projection;
 using Winche.Events.Session;
@@ -13,7 +13,6 @@ using System.Text.Json.Serialization;
 const string ConnectionString = "Host=localhost;Port=5432;Username=postgres;Password=Ehsan1371;Database=winche_events_test";
 
 var services = new ServiceCollection();
-
 services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));
 
 services.AddWincheEvents(opts =>
@@ -22,7 +21,7 @@ services.AddWincheEvents(opts =>
     opts.AddEvent<OrderPlaced>();
     opts.AddEvent<OrderShipped>();
     opts.AddEvent<OrderCancelled>();
-    opts.AddProjection<OrderProjection>(ProjectionMode.Live);
+    opts.AddProjection<OrderProjection, Order>(ProjectionMode.Inline);
     opts.AddNotifier<ConsoleNotifier>();
     opts.ConfigureJsonSerializer = jsonOpts =>
     {
@@ -31,10 +30,9 @@ services.AddWincheEvents(opts =>
     };
 });
 
-services.AddWincheEventsCommands(commands =>
+services.AddWincheEventsCommands(cmds =>
 {
-    commands.AddHandler<PlaceOrderHandler>();
-    commands.AddHandler<ShipOrderHandler>();
+    cmds.AddCommandHandler<OrderCommandHandler, Order>();
 });
 
 await using var provider = services.BuildServiceProvider();
@@ -44,29 +42,30 @@ var logger = provider.GetRequiredService<ILogger<Program>>();
 
 var orderId = $"orders/{Guid.NewGuid():N}";
 
-logger.LogInformation("=== Place order via command dispatcher ===");
-var order = await dispatcher.DispatchAsync<Order>(
-    orderId, new PlaceOrderCommand(orderId, 99.99m));
+logger.LogInformation("=== Place order ===");
+await dispatcher.DispatchAsync(orderId, new PlaceOrderCommand(orderId, 99.99m));
+await using var s1 = await eventStore.OpenSessionAsync();
+var order = await s1.LoadAsync<Order>(orderId);
 logger.LogInformation("After place: status={Status} total={Total}", order?.Status, order?.Total);
 
-logger.LogInformation("=== Ship order via command dispatcher ===");
-order = await dispatcher.DispatchAsync<Order>(
-    orderId, new ShipOrderCommand(orderId));
+logger.LogInformation("=== Ship order ===");
+await dispatcher.DispatchAsync(orderId, new ShipOrderCommand(orderId));
+await using var s2 = await eventStore.OpenSessionAsync();
+order = await s2.LoadAsync<Order>(orderId);
 logger.LogInformation("After ship: status={Status}", order?.Status);
 
-logger.LogInformation("=== Cancel directly via IEventSession ===");
+logger.LogInformation("=== Cancel directly ===");
 await using (var session = await eventStore.OpenSessionAsync())
 {
     await session.AppendAsync(orderId, [new OrderCancelled(orderId)]);
     await session.SaveChangesAsync();
 }
 
-logger.LogInformation("=== Load final state via IEventSession ===");
-await using (var session = await eventStore.OpenSessionAsync())
-{
-    var finalState = await session.LoadAsync<Order>(orderId);
-    logger.LogInformation("Final state: status={Status}", finalState?.Status);
-}
+logger.LogInformation("=== Read all events ===");
+await using var evtSession = await eventStore.OpenSessionAsync();
+var events = await evtSession.GetEventsAsync(orderId);
+foreach (var e in events)
+    logger.LogInformation("v{Version} [{Timestamp}] {Type}", e.Version, e.Timestamp, e.Data.GetType().Name);
 
 // ── Domain ────────────────────────────────────────────────────────────────────
 
@@ -81,37 +80,37 @@ record OrderCancelled(string OrderId) : Event;
 
 class OrderProjection : Projection<Order>
 {
+    public OrderProjection()
+    {
+        On<OrderPlaced>((s, e) => s with { Status = "placed", Total = e.Data.Total });
+        On<OrderShipped>((s, e) => s with { Status = "shipped" });
+        On<OrderCancelled>((s, e) => s with { Status = "cancelled" });
+    }
     public override Order Create(string id) => Order.Empty with { Id = id };
-
-    public Order Apply(Order state, OrderPlaced e) => state with { Status = "placed", Total = e.Total };
-    public Order Apply(Order state, OrderShipped e) => state with { Status = "shipped" };
-    public Order Apply(Order state, OrderCancelled e) => state with { Status = "cancelled" };
 }
 
 // ── Commands ──────────────────────────────────────────────────────────────────
 
-record PlaceOrderCommand(string OrderId, decimal Total);
-record ShipOrderCommand(string OrderId);
+record PlaceOrderCommand(string OrderId, decimal Total) : Command<Order>;
+record ShipOrderCommand(string OrderId) : Command<Order>;
 
-class PlaceOrderHandler : ICommandHandler<PlaceOrderCommand, Order>
+class OrderCommandHandler : CommandHandler<Order>
 {
-    public Task<IEnumerable<IEvent>> HandleAsync(PlaceOrderCommand cmd, Order? state, CancellationToken ct)
+    public OrderCommandHandler()
     {
-        if (state is { Status: not "none" })
-            throw new InvalidOperationException($"Order {cmd.OrderId} already exists.");
+        On<PlaceOrderCommand>((state, cmd) =>
+        {
+            if (state is { Status: not "none" })
+                throw new InvalidOperationException($"Order {cmd.OrderId} already exists.");
+            return [new OrderPlaced(cmd.OrderId, cmd.Total)];
+        });
 
-        return Task.FromResult<IEnumerable<IEvent>>([new OrderPlaced(cmd.OrderId, cmd.Total)]);
-    }
-}
-
-class ShipOrderHandler : ICommandHandler<ShipOrderCommand, Order>
-{
-    public Task<IEnumerable<IEvent>> HandleAsync(ShipOrderCommand cmd, Order? state, CancellationToken ct)
-    {
-        if (state is null or { Status: "none" })
-            throw new InvalidOperationException($"Order {cmd.OrderId} does not exist.");
-
-        return Task.FromResult<IEnumerable<IEvent>>([new OrderShipped(cmd.OrderId)]);
+        On<ShipOrderCommand>((state, cmd) =>
+        {
+            if (state is null or { Status: "none" })
+                throw new InvalidOperationException($"Order {cmd.OrderId} does not exist.");
+            return [new OrderShipped(cmd.OrderId)];
+        });
     }
 }
 

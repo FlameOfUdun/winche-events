@@ -6,126 +6,168 @@ using Xunit;
 namespace Winche.Events.Tests.Projection;
 
 public record Counter(int Value) : Aggregate;
-public record Incremented;
-public record Decremented;
-public record UnknownEvent;
+public record Incremented : Event;
+public record Decremented : Event;
+public record UnknownEvent : Event;
 
-public class CounterProjection : Projection<Counter>
+class CounterProjection : Projection<Counter>
 {
+    public CounterProjection()
+    {
+        On<Incremented>((s, e) => s with { Value = s.Value + 1 });
+        On<Decremented>((s, e) => s with { Value = s.Value - 1 });
+    }
     public override Counter Create(string id) => new Counter(0) { Id = id };
-    public Counter Apply(Counter state, Incremented _) => state with { Value = state.Value + 1 };
-    public Counter Apply(Counter state, Decremented _) => state with { Value = state.Value - 1 };
-}
-
-public class SpyProjection : Projection<Counter>
-{
-    public bool FallbackCalled { get; private set; }
-    public override Counter Create(string id) => new Counter(0) { Id = id };
-    public Counter Apply(Counter state, Incremented _) => state with { Value = 1 };
-    public Counter Apply(Counter state, object @event) { FallbackCalled = true; return state; }
 }
 
 class AsyncCounterProjection : Projection<Counter>
 {
+    public AsyncCounterProjection()
+    {
+        On<Incremented>((s, e) => s with { Value = s.Value + 1 });
+        On<Incremented>(async (s,  e) =>
+        {
+            await Task.Yield();
+            return s with { Value = s.Value + 10 };
+        });
+    }
     public override Counter Create(string id) => new Counter(0) { Id = id };
-    public Task<Counter> ApplyAsync(Counter state, Incremented _) => Task.FromResult(state with { Value = state.Value + 10 });
-    public Task<Counter> ApplyAsync(Counter state, Decremented _) => Task.FromResult(state with { Value = state.Value - 1 });
-    public Counter Apply(Counter state, Incremented _) => state with { Value = state.Value + 1 };
 }
 
-class TrulyAsyncProjection : Projection<Counter>
+class MetadataProjection : Projection<Counter>
 {
-    public override Counter Create(string id) => new Counter(0) { Id = id };
-    public async Task<Counter> ApplyAsync(Counter state, Incremented _)
+    public DateTimeOffset LastTimestamp { get; private set; }
+    public long LastVersion { get; private set; }
+    public string LastStreamId { get; private set; } = string.Empty;
+
+    public MetadataProjection()
     {
-        await Task.Yield();
-        return state with { Value = state.Value + 10 };
+        On<Incremented>((s, e) =>
+        {
+            LastTimestamp = e.Timestamp;
+            LastVersion = e.Version;
+            LastStreamId = e.StreamId;
+            return s with { Value = s.Value + 1 };
+        });
+    }
+    public override Counter Create(string id) => new Counter(0) { Id = id };
+}
+
+class MethodGroupProjection : Projection<Counter>
+{
+    public MethodGroupProjection()
+    {
+        On<Incremented>(Handle);
+    }
+    public override Counter Create(string id) => new Counter(0) { Id = id };
+    private Counter Handle(Counter s, EventEnvelope<Incremented> e) => s with { Value = s.Value + 5 };
+}
+
+public class EventEnvelopeTests
+{
+    [Fact]
+    public void EventEnvelope_exposes_typed_data_and_metadata()
+    {
+        var ts = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var data = new Incremented();
+        var envelope = new EventEnvelope<Incremented>("counters/1", data, 3, ts);
+
+        envelope.StreamId.Should().Be("counters/1");
+        envelope.Data.Should().BeSameAs(data);
+        envelope.Version.Should().Be(3);
+        envelope.Timestamp.Should().Be(ts);
+    }
+
+    [Fact]
+    public void EventEnvelope_IEvent_holds_base_typed_data()
+    {
+        var data = new Incremented();
+        var envelope = new EventEnvelope<IEvent>("counters/1", data, 1, DateTimeOffset.UtcNow);
+
+        envelope.Data.Should().BeSameAs(data);
+        envelope.Data.Should().BeOfType<Incremented>();
     }
 }
 
 public class ProjectionTests
 {
-    private readonly CounterProjection _projection = new();
+    private static EventEnvelope<IEvent> Envelope(IEvent data, string streamId = "test", long version = 1)
+        => new(streamId, data, version, DateTimeOffset.UtcNow);
 
     [Fact]
-    public void InitialState_returns_zero_counter()
+    public void Create_returns_initial_state()
     {
-        _projection.Create("test").Should().Be(new Counter(0) { Id = "test" });
+        var p = new CounterProjection();
+        p.Create("test").Should().Be(new Counter(0) { Id = "test" });
     }
 
     [Fact]
-    public void ApplyEvent_dispatches_to_typed_overload_for_known_event()
+    public void ApplyEvent_dispatches_registered_sync_handler()
     {
-        var result = _projection.ApplyEvent(new Counter(0) { Id = "test" }, new Incremented());
-        result.Should().Be(new Counter(1) { Id = "test" });
+        var p = new CounterProjection();
+        var result = p.ApplyEvent(p.Create("test"), Envelope(new Incremented()));
+        result.Value.Should().Be(1);
     }
 
     [Fact]
-    public void ApplyEvent_chains_multiple_events_in_order()
+    public void ApplyEvent_returns_state_unchanged_for_unregistered_event()
     {
-        var state = _projection.Create("test");
-        state = _projection.ApplyEvent(state, new Incremented());
-        state = _projection.ApplyEvent(state, new Incremented());
-        state = _projection.ApplyEvent(state, new Decremented());
-        state.Should().Be(new Counter(1) { Id = "test" });
+        var p = new CounterProjection();
+        var state = new Counter(42) { Id = "test" };
+        p.ApplyEvent(state, Envelope(new UnknownEvent())).Should().Be(state);
     }
 
     [Fact]
-    public void ApplyEvent_returns_state_unchanged_for_unhandled_event_type()
+    public void ApplyEvent_uses_sync_handler_even_when_async_also_registered()
     {
-        var result = _projection.ApplyEvent(new Counter(42) { Id = "test" }, new UnknownEvent());
-        result.Should().Be(new Counter(42) { Id = "test" });
+        var p = new AsyncCounterProjection();
+        var result = p.ApplyEvent(p.Create("test"), Envelope(new Incremented()));
+        result.Value.Should().Be(1);
     }
 
     [Fact]
-    public void ApplyEvent_does_not_invoke_base_fallback_for_handled_event_type()
+    public async Task ApplyEventAsync_prefers_async_handler_when_both_registered()
     {
-        var spy = new SpyProjection();
-        spy.ApplyEvent(spy.Create("test"), new Incremented());
-        spy.FallbackCalled.Should().BeFalse();
+        var p = new AsyncCounterProjection();
+        var result = await p.ApplyEventAsync(p.Create("test"), Envelope(new Incremented()));
+        result.Value.Should().Be(10);
     }
 
     [Fact]
-    public async Task ApplyEventAsync_prefers_async_overload_over_sync_when_both_exist()
+    public async Task ApplyEventAsync_falls_back_to_sync_handler()
     {
-        var projection = new AsyncCounterProjection();
-        var result = await projection.ApplyEventAsync(new Counter(0) { Id = "test" }, new Incremented());
-        result.Value.Should().Be(10); // async adds 10, sync adds 1 — async must win
+        var p = new CounterProjection();
+        var result = await p.ApplyEventAsync(p.Create("test"), Envelope(new Incremented()));
+        result.Value.Should().Be(1);
     }
 
     [Fact]
-    public async Task ApplyEventAsync_falls_back_to_sync_apply_when_no_async_overload_exists()
+    public async Task ApplyEventAsync_returns_state_unchanged_for_unregistered_event()
     {
-        var result = await _projection.ApplyEventAsync(new Counter(5) { Id = "test" }, new Incremented());
-        result.Should().Be(new Counter(6) { Id = "test" });
+        var p = new CounterProjection();
+        var state = new Counter(42) { Id = "test" };
+        var result = await p.ApplyEventAsync(state, Envelope(new UnknownEvent()));
+        result.Should().Be(state);
     }
 
     [Fact]
-    public async Task ApplyEventAsync_chains_multiple_events_in_order()
+    public void Handler_receives_envelope_metadata()
     {
-        var projection = new AsyncCounterProjection();
-        var state = projection.Create("test");
-        state = await projection.ApplyEventAsync(state, new Incremented());
-        state = await projection.ApplyEventAsync(state, new Incremented());
-        state = await projection.ApplyEventAsync(state, new Decremented());
-        state.Value.Should().Be(19); // +10, +10, -1
+        var ts = new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero);
+        var p = new MetadataProjection();
+        var result = p.ApplyEvent(p.Create("counters/99"), new EventEnvelope<IEvent>("counters/99", new Incremented(), 7, ts));
+
+        p.LastStreamId.Should().Be("counters/99");
+        p.LastVersion.Should().Be(7);
+        p.LastTimestamp.Should().Be(ts);
+        result.Value.Should().Be(1);
     }
 
     [Fact]
-    public async Task ApplyEventAsync_ignores_unhandled_event_types()
+    public void Method_group_is_accepted_as_handler()
     {
-        var projection = new AsyncCounterProjection();
-        var result = await projection.ApplyEventAsync(new Counter(42) { Id = "test" }, new UnknownEvent());
-        result.Should().Be(new Counter(42) { Id = "test" });
-    }
-
-    [Fact]
-    public async Task ApplyEventAsync_awaits_genuine_async_state_machine()
-    {
-        var projection = new TrulyAsyncProjection();
-        var state = projection.Create("test");
-        state = await projection.ApplyEventAsync(state, new Incremented());
-        state = await projection.ApplyEventAsync(state, new Incremented());
-        state.Value.Should().Be(20);
+        var p = new MethodGroupProjection();
+        var result = p.ApplyEvent(p.Create("test"), Envelope(new Incremented()));
+        result.Value.Should().Be(5);
     }
 }

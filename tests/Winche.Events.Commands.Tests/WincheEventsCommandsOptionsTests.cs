@@ -1,21 +1,35 @@
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using Winche.Events.Commands.DependencyInjection;
 using Xunit;
 
 namespace Winche.Events.Commands.Tests;
 
-class NotAHandler { }
-
 public class WincheEventsCommandsOptionsTests
 {
     [Fact]
-    public void AddHandler_throws_when_type_does_not_implement_ICommandHandler()
+    public void AddCommandHandler_registers_handler_as_singleton_in_DI()
+    {
+        var services = new ServiceCollection();
+        var options = new WincheEventsCommandsOptions();
+
+        options.AddCommandHandler<ThingCommandHandler, Thing>();
+
+        foreach (var reg in options.Registrations)
+            reg(services);
+
+        var provider = services.BuildServiceProvider();
+        var handler = provider.GetRequiredService<CommandHandler<Thing>>();
+        handler.Should().BeOfType<ThingCommandHandler>();
+    }
+
+    [Fact]
+    public void AddCommandHandler_stores_one_registration_per_call()
     {
         var options = new WincheEventsCommandsOptions();
 
-        var act = () => options.AddHandler<NotAHandler>();
+        options.AddCommandHandler<ThingCommandHandler, Thing>();
 
-        act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*must implement ICommandHandler*");
+        options.Registrations.Should().HaveCount(1);
     }
 }

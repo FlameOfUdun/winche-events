@@ -1,14 +1,19 @@
 namespace Winche.Events.Projection;
 
-/// <summary>Controls when and how an aggregate document is built from its event stream.</summary>
+/// <summary>Controls when and how the aggregate document is built from its event stream.</summary>
 public enum ProjectionMode
 {
-    /// <summary>Aggregate is updated synchronously within the same transaction as the appended events. <see cref="Session.IEventSession.LoadAsync{TAggregate}"/> is a simple document lookup.</summary>
+    /// <summary>
+    /// Updated synchronously within the same transaction as the appended events.
+    /// <see cref="Session.IEventSession.LoadAsync{TAggregate}"/> returns the fresh document immediately.
+    /// Handlers registered with <c>On&lt;TEvent&gt;</c> must not perform external I/O — they run inside
+    /// the open PostgreSQL transaction.
+    /// </summary>
     Inline,
 
-    /// <summary>Aggregate is updated by a background daemon after events are committed. Eventually consistent.</summary>
+    /// <summary>
+    /// Updated by a background daemon after events are committed. Eventually consistent.
+    /// Safe for async handlers that perform external DB reads or API calls.
+    /// </summary>
     Async,
-
-    /// <summary>Aggregate is computed on every <see cref="Session.IEventSession.LoadAsync{TAggregate}"/> call by replaying the event stream. No stored document.</summary>
-    Live,
 }

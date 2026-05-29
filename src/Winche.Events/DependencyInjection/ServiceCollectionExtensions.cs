@@ -1,10 +1,9 @@
 using Marten;
 using JasperFx.Events;
-using JasperFx.Events.Projections;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Winche.Events.Notification;
-using Winche.Events.Projection;
+using Winche.Events.Session;
 using Winche.Events.Session.Internal;
 
 namespace Winche.Events.DependencyInjection;
@@ -20,16 +19,11 @@ public static class ServiceCollectionExtensions
         var options = new WincheEventsOptions();
         configure(options);
 
-        foreach (var (projection, _) in options.Projections)
-            projection.RegisterServices(services);
+        foreach (var proj in options.Projections)
+            proj.Register(services);
 
         foreach (var notifierType in options.NotifierTypes)
             services.AddSingleton(typeof(IAppendNotifier), notifierType);
-
-        var inlineTypes = options.Projections
-            .Where(p => p.Mode == ProjectionMode.Inline)
-            .Select(p => p.Projection.AggregateType)
-            .ToHashSet();
 
         services.AddMarten(sp =>
         {
@@ -40,7 +34,6 @@ public static class ServiceCollectionExtensions
             foreach (var (eventType, alias) in options.EventTypes)
             {
                 storeOptions.Events.AddEventType(eventType);
-
                 if (alias is not null)
                     storeOptions.Events.MapEventType(eventType, alias);
             }
@@ -48,8 +41,8 @@ public static class ServiceCollectionExtensions
             if (options.ConfigureJsonSerializer is not null)
                 storeOptions.UseSystemTextJsonForSerialization(configure: options.ConfigureJsonSerializer);
 
-            foreach (var (projection, mode) in options.Projections)
-                projection.ConfigureMarten(storeOptions, sp, ToMartenLifecycle(mode));
+            foreach (var proj in options.Projections)
+                proj.Configure(storeOptions, sp);
 
             return storeOptions;
         });
@@ -59,17 +52,9 @@ public static class ServiceCollectionExtensions
             var martenStore = sp.GetRequiredService<IDocumentStore>();
             var notifiers = sp.GetServices<IAppendNotifier>().ToList();
             var logger = sp.GetRequiredService<ILogger<EventSession>>();
-            return new EventStore(martenStore, sp, inlineTypes, notifiers, logger);
+            return new EventStore(martenStore, notifiers, logger);
         });
 
         return services;
     }
-
-    private static ProjectionLifecycle ToMartenLifecycle(ProjectionMode mode) => mode switch
-    {
-        ProjectionMode.Inline => ProjectionLifecycle.Inline,
-        ProjectionMode.Async => ProjectionLifecycle.Async,
-        ProjectionMode.Live => ProjectionLifecycle.Live,
-        _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null),
-    };
 }

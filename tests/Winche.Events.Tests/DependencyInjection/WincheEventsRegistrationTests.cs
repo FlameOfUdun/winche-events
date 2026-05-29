@@ -17,8 +17,11 @@ record AliasedAggregate(string Status) : Aggregate
 
 class AliasedProjection : Projection<AliasedAggregate>
 {
+    public AliasedProjection()
+    {
+        On<AliasedEvent>((s, e) => s with { Status = "done" });
+    }
     public override AliasedAggregate Create(string id) => AliasedAggregate.Empty with { Id = id };
-    public AliasedAggregate Apply(AliasedAggregate s, AliasedEvent _) => s with { Status = "done" };
 }
 
 public class WincheEventsRegistrationTests : IAsyncLifetime
@@ -48,7 +51,7 @@ public class WincheEventsRegistrationTests : IAsyncLifetime
         {
             opts.ConnectionString = ConnectionString;
             opts.AddEvent<AliasedEvent>("aliased_event_v1");
-            opts.AddProjection<AliasedProjection>(ProjectionMode.Live);
+            opts.AddProjection<AliasedProjection, AliasedAggregate>(ProjectionMode.Async);
         });
         var provider = services.BuildServiceProvider();
         var martenStore = provider.GetRequiredService<IDocumentStore>();

@@ -7,7 +7,8 @@ A [Marten](https://martendb.io/)-backed event sourcing library for .NET 10. Prov
 ## Packages
 
 | Package | Purpose |
-| - | - |
+| --- | --- |
+| `Winche.Events.Abstractions` | Base types: `IAggregate`, `Aggregate`, `IEvent`, `Event`, `ICommand<TAggregate>`, `Command<TAggregate>`, `EventEnvelope<TEvent>` |
 | `Winche.Events` | Core: event store, sessions, projections, notifiers |
 | `Winche.Events.Commands` | Optional: command handlers and dispatcher |
 
@@ -17,37 +18,80 @@ A [Marten](https://martendb.io/)-backed event sourcing library for .NET 10. Prov
 
 ### 1. Define your domain model
 
-Aggregates inherit from `Aggregate` (or implement `IAggregate<string>` directly for multiple-inheritance scenarios). Events inherit from `Event` (or implement `IEvent`).
-
 ```csharp
 using Winche.Events.Abstractions;
 
-public record Order(string Status, decimal Total) : Aggregate
+record Order(string Status, decimal Total) : Aggregate
 {
     public static Order Empty => new("none", 0);
 }
 
-public record OrderPlaced(string OrderId, decimal Total) : Event;
-public record OrderShipped(string OrderId) : Event;
-public record OrderCancelled(string OrderId) : Event;
+record OrderPlaced(string OrderId, decimal Total) : Event;
+record OrderShipped(string OrderId) : Event;
+record OrderCancelled(string OrderId) : Event;
 ```
 
-### 2. Define your projection
+### 2. Define a projection
+
+Projections fold events into an aggregate document. Register one handler per event type in the constructor using `On<TEvent>`. Unregistered event types are silently ignored.
 
 ```csharp
 using Winche.Events.Projection;
 
-public class OrderProjection : Projection<Order>
+class OrderProjection : Projection<Order>
 {
-    public override Order Create(string id) => Order.Empty with { Id = id };
+    public OrderProjection()
+    {
+        On<OrderPlaced>((state, e) => state with { Status = "placed", Total = e.Data.Total });
+        On<OrderShipped>((state, e) => state with { Status = "shipped" });
+        On<OrderCancelled>((state, e) => state with { Status = "cancelled" });
+    }
 
-    public Order Apply(Order state, OrderPlaced e)    => state with { Status = "placed",    Total = e.Total };
-    public Order Apply(Order state, OrderShipped e)   => state with { Status = "shipped" };
-    public Order Apply(Order state, OrderCancelled e) => state with { Status = "cancelled" };
+    public override Order Create(string id) => Order.Empty with { Id = id };
 }
 ```
 
-Each `Apply` overload handles one event type. Unhandled event types are silently ignored. Async work is supported via `ApplyAsync` overloads — see [Async projections](#async-projections).
+Each handler receives `EventEnvelope<TEvent>` — access the event via `e.Data` and stream metadata via `e.Version`, `e.Timestamp`, `e.StreamId`.
+
+**Private methods as handlers:**
+
+```csharp
+class OrderProjection : Projection<Order>
+{
+    public OrderProjection()
+    {
+        On<OrderPlaced>(HandlePlaced);
+        On<OrderShipped>((state, e) => state with { Status = "shipped" });
+    }
+
+    public override Order Create(string id) => Order.Empty with { Id = id };
+
+    private Order HandlePlaced(Order state, EventEnvelope<OrderPlaced> e)
+        => state with { Status = "placed", Total = e.Data.Total };
+}
+```
+
+**Async handlers with DI:**
+
+Constructor arguments are resolved from DI. Lambdas close over them.
+
+```csharp
+class OrderProjection(IInventoryClient inventory) : Projection<Order>
+{
+    public OrderProjection()
+    {
+        On<OrderShipped>(HandleShipped);
+    }
+
+    public override Order Create(string id) => Order.Empty with { Id = id };
+
+    private async Task<Order> HandleShipped(Order state, EventEnvelope<OrderShipped> e)
+    {
+        var stock = await inventory.GetStockAsync(e.Data.OrderId);
+        return state with { Status = "shipped", Stock = stock };
+    }
+}
+```
 
 ### 3. Register services
 
@@ -63,17 +107,13 @@ services.AddWincheEvents(opts =>
     opts.AddEvent<OrderShipped>();
     opts.AddEvent<OrderCancelled>();
 
-    opts.AddProjection<OrderProjection>(ProjectionMode.Live);
+    opts.AddProjection<OrderProjection, Order>(ProjectionMode.Inline);
 });
 ```
-
-`AddProjection` infers the aggregate type from the `Projection<TAggregate>` base class. `OrderProjection` must have a parameterless constructor.
 
 ### 4. Use the event store
 
 ```csharp
-var store = provider.GetRequiredService<IEventStore>();
-
 await using var session = await store.OpenSessionAsync();
 
 await session.AppendAsync("orders/123", [new OrderPlaced("orders/123", 49.99m)]);
@@ -87,65 +127,99 @@ var order = await session.LoadAsync<Order>("orders/123");
 
 ## Projection modes
 
-| Mode | Behaviour |
-| - | - |
-| `Live` | Aggregate is computed on every `LoadAsync` by replaying the event stream. No stored document. |
-| `Inline` | Aggregate document is updated synchronously inside the same transaction when events are appended. `LoadAsync` is a simple document lookup. |
-| `Async` | Aggregate document is updated by a background daemon. Eventually consistent. |
+| Mode | When document is built | `LoadAsync` returns | Async handlers safe? |
+| --- | --- | --- | --- |
+| `Inline` | Inside the same transaction as the append | Always fresh | No — runs inside a DB transaction |
+| `Async` | Background daemon after commit | Eventually consistent | Yes |
+
+**Inline** — use when you need the document to be immediately consistent after `SaveChangesAsync`. Handlers must be fast and synchronous (no external I/O — they run inside the open PostgreSQL transaction).
+
+**Async** — use when handlers need to call external APIs or other databases. The daemon processes events in the background; `LoadAsync` may return stale state until it catches up.
+
+```csharp
+opts.AddProjection<OrderProjection, Order>(ProjectionMode.Inline);
+opts.AddProjection<OrderReadModel, OrderSummary>(ProjectionMode.Async);
+```
 
 ---
 
 ## IEventSession
 
-`IEventSession` is a unit of work scoped to a single PostgreSQL connection and transaction. Always dispose it with `await using`.
+`IEventSession` is a unit of work scoped to a single PostgreSQL connection. Always dispose with `await using`.
+
+### AppendAsync
 
 ```csharp
-public interface IEventSession : IAsyncDisposable
-{
-    Task AppendAsync(
-        string streamId,
-        IEnumerable<IEvent> events,
-        long? expectedVersion = null,
-        CancellationToken ct = default);
-
-    Task<TAggregate?> LoadAsync<TAggregate>(
-        string streamId,
-        CancellationToken ct = default) where TAggregate : class, IAggregate<string>;
-
-    Task SaveChangesAsync(CancellationToken ct = default);
-}
+await session.AppendAsync("orders/123", [new OrderPlaced("orders/123", 49.99m)]);
 ```
 
-**Optimistic concurrency** — pass `expectedVersion` to `AppendAsync` to reject concurrent writes:
+**Optimistic concurrency** — pass `expectedVersion` to reject concurrent writes:
 
 ```csharp
 await session.AppendAsync("orders/123", events, expectedVersion: 3);
+// Marten throws if the stream's current version doesn't match.
 ```
 
-Marten throws if the stream's current version does not match.
+### LoadAsync
+
+Reads the stored aggregate document. For `Inline` projections this is always fresh after commit. For `Async` projections it reflects the last time the daemon ran.
+
+```csharp
+var order = await session.LoadAsync<Order>("orders/123");
+```
+
+### LoadFreshAsync
+
+Waits for the async daemon to catch up to the latest committed event, then reads the document. Use this after `SaveChangesAsync` when you need guaranteed fresh state from an `Async` projection.
+
+```csharp
+var order = await session.LoadFreshAsync<Order>("orders/123");                    // default 5s timeout
+var order = await session.LoadFreshAsync<Order>("orders/123", TimeSpan.FromSeconds(10));
+```
+
+### GetEventsAsync
+
+Returns all events for a stream in order, each wrapped with metadata.
+
+```csharp
+var events = await session.GetEventsAsync("orders/123");
+
+foreach (var e in events)
+    Console.WriteLine($"v{e.Version} [{e.Timestamp:u}] {e.Data.GetType().Name}");
+```
+
+### SaveChangesAsync
+
+Commits all buffered appends to PostgreSQL, then fires registered notifiers.
+
+```csharp
+await session.SaveChangesAsync();
+```
 
 ---
 
-## Async projections
+## EventEnvelope\<TEvent\>
 
-`Apply` overloads can be replaced with `ApplyAsync` for projections that need to perform async work (database lookups, external calls, etc.):
+Projection handlers receive `EventEnvelope<TEvent>` rather than the raw event. This gives access to both the typed payload and stream metadata.
 
 ```csharp
-public class OrderProjection : Projection<Order>
-{
-    public override Order Create(string id) => Order.Empty with { Id = id };
-
-    public async Task<Order> ApplyAsync(Order state, OrderPlaced e)
-    {
-        var enriched = await _db.GetOrderMetaAsync(e.OrderId);
-        return state with { Status = "placed", Total = e.Total, Meta = enriched };
-    }
-
-    public Order Apply(Order state, OrderShipped e) => state with { Status = "shipped" };
-}
+public sealed record EventEnvelope<TEvent>(
+    string StreamId,
+    TEvent Data,
+    long Version,
+    DateTimeOffset Timestamp) where TEvent : IEvent;
 ```
 
-`ApplyAsync` takes priority over `Apply` for the same event type when both are defined. Methods are resolved once per event type and cached for the lifetime of the application.
+```csharp
+On<OrderPlaced>((state, e) =>
+{
+    // e.Data        — strongly typed OrderPlaced
+    // e.Version     — position in the stream (1-based)
+    // e.Timestamp   — when the event was committed
+    // e.StreamId    — the stream identifier
+    return state with { Status = "placed", Total = e.Data.Total };
+});
+```
 
 ---
 
@@ -156,7 +230,7 @@ Implement `IAppendNotifier` to receive a callback after each successful commit:
 ```csharp
 using Winche.Events.Notification;
 
-public class MyNotifier : IAppendNotifier
+class OrderNotifier : IAppendNotifier
 {
     public Task NotifyAsync(string streamId, IReadOnlyList<IEvent> events,
         CancellationToken ct = default)
@@ -171,73 +245,112 @@ public class MyNotifier : IAppendNotifier
 Register it:
 
 ```csharp
-opts.AddNotifier<MyNotifier>();
+opts.AddNotifier<OrderNotifier>();
 ```
 
-Multiple notifiers can be registered. Each runs independently — an exception in one is logged and swallowed and does not affect the others or the caller.
+Multiple notifiers can be registered. An exception in one is logged and swallowed; it does not affect the others or the caller.
 
 ---
 
 ## Commands (Winche.Events.Commands)
 
-The commands package adds a load → handle → append → return dispatch loop on top of `IEventSession`.
+The commands package adds a load → handle → append → commit dispatch loop on top of `IEventSession`.
 
-### 1. Define commands and handlers
+### 1. Define commands
+
+Commands extend `Command<TAggregate>` (or implement `ICommand<TAggregate>`). The aggregate type is encoded in the type, enabling zero-boilerplate dispatch.
+
+```csharp
+using Winche.Events.Abstractions;
+
+record PlaceOrderCommand(string OrderId, decimal Total) : Command<Order>;
+record ShipOrderCommand(string OrderId) : Command<Order>;
+```
+
+### 2. Define a command handler
+
+All commands for an aggregate live in one `CommandHandler<TAggregate>` class, registered with `On<TCommand>` in the constructor — symmetric to how projections work.
 
 ```csharp
 using Winche.Events.Commands;
 
-public record PlaceOrderCommand(string OrderId, decimal Total);
-
-public class PlaceOrderHandler : ICommandHandler<PlaceOrderCommand, Order>
+class OrderCommandHandler : CommandHandler<Order>
 {
-    public Task<IEnumerable<IEvent>> HandleAsync(
-        PlaceOrderCommand cmd, Order? state, CancellationToken ct = default)
+    public OrderCommandHandler()
     {
-        if (state is { Status: not "none" })
-            throw new InvalidOperationException("Order already exists.");
+        On<PlaceOrderCommand>((state, cmd) =>
+        {
+            if (state is { Status: not "none" })
+                throw new InvalidOperationException("Order already exists.");
+            return [new OrderPlaced(cmd.OrderId, cmd.Total)];
+        });
 
-        return Task.FromResult<IEnumerable<IEvent>>(
-            [new OrderPlaced(cmd.OrderId, cmd.Total)]);
+        On<ShipOrderCommand>((state, cmd) =>
+        {
+            if (state is null or { Status: "none" })
+                throw new InvalidOperationException("Order does not exist.");
+            return [new OrderShipped(cmd.OrderId)];
+        });
     }
 }
 ```
 
-`state` is the current aggregate loaded from the store (`null` if the stream does not exist yet). Throw to reject the command — no events will be appended.
+`state` is the current aggregate loaded from the store (`null` if the stream does not exist). Throw to reject the command — no events will be appended.
 
-### 2. Register
+Async handlers and DI injection work the same way as projections:
+
+```csharp
+class OrderCommandHandler(IInventoryService inventory) : CommandHandler<Order>
+{
+    public OrderCommandHandler()
+    {
+        On<ShipOrderCommand>(HandleShip);
+    }
+
+    private async Task<IEnumerable<IEvent>> HandleShip(Order? state, ShipOrderCommand cmd)
+    {
+        await inventory.ReserveStockAsync(cmd.OrderId);
+        return [new OrderShipped(cmd.OrderId)];
+    }
+}
+```
+
+### 3. Register
 
 ```csharp
 using Winche.Events.Commands.DependencyInjection;
 
-services.AddWincheEventsCommands(commands =>
+services.AddWincheEventsCommands(cmds =>
 {
-    commands.AddHandler<PlaceOrderHandler>();
+    cmds.AddCommandHandler<OrderCommandHandler, Order>();
 });
 ```
 
-`AddHandler` infers `TCommand` and `TAggregate` from the `ICommandHandler<,>` interface the handler implements.
-
-### 3. Dispatch
+### 4. Dispatch
 
 ```csharp
 var dispatcher = provider.GetRequiredService<ICommandDispatcher>();
 
-var order = await dispatcher.DispatchAsync<Order>(
-    "orders/123", new PlaceOrderCommand("orders/123", 49.99m));
+await dispatcher.DispatchAsync("orders/123", new PlaceOrderCommand("orders/123", 49.99m));
+```
 
-// order reflects the state after the command's events have been applied
+`TAggregate` is inferred from the command's `Command<Order>` base — no explicit type argument needed.
+
+`DispatchAsync` does not return state. Load it explicitly if needed:
+
+```csharp
+await dispatcher.DispatchAsync("orders/123", new PlaceOrderCommand("orders/123", 49.99m));
+
+await using var session = await store.OpenSessionAsync();
+var order = await session.LoadAsync<Order>("orders/123");
 ```
 
 **Dispatch flow:**
 
 1. Open a session
-2. Load current aggregate state (`null` for new streams)
+2. Load current aggregate state via `LoadAsync` (`null` for new streams)
 3. Call the registered handler → produce events
 4. Append events and commit
-5. Load and return the updated state
-
-The command type is resolved at runtime from the registered handlers — no type parameter needed at the call site.
 
 ---
 
@@ -250,21 +363,6 @@ await using var session = await store.OpenSessionAsync(IsolationLevel.Serializab
 ```
 
 Default is `ReadCommitted`.
-
----
-
-## Extending the base types
-
-Aggregates and events are constrained to `IAggregate<string>` and `IEvent` respectively. The provided `Aggregate` and `Event` abstract records satisfy these constraints and are the recommended starting point. If your type already inherits from another class, implement the interface directly:
-
-```csharp
-public class MyOrder : ExistingBase, IAggregate<string>
-{
-    public string Id { get; init; } = string.Empty;
-}
-
-public class MyEvent : ExistingEventBase, IEvent { }
-```
 
 ---
 

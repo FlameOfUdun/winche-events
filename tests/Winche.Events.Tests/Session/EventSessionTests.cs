@@ -17,9 +17,12 @@ public record OrderShipped(string OrderId) : Event;
 
 public class OrderProjection : Projection<OrderState>
 {
+    public OrderProjection()
+    {
+        On<OrderPlaced>((s, e) => s with { Status = "placed" });
+        On<OrderShipped>((s, e) => s with { Status = "shipped" });
+    }
     public override OrderState Create(string id) => new OrderState("none") { Id = id };
-    public OrderState Apply(OrderState s, OrderPlaced e) => s with { Status = "placed" };
-    public OrderState Apply(OrderState s, OrderShipped e) => s with { Status = "shipped" };
 }
 
 class CapturingNotifier : IAppendNotifier
@@ -54,7 +57,7 @@ public class EventSessionTests : IAsyncLifetime
             opts.ConnectionString = ConnectionString;
             opts.AddEvent<OrderPlaced>();
             opts.AddEvent<OrderShipped>();
-            opts.AddProjection<OrderProjection>(ProjectionMode.Inline);
+            opts.AddProjection<OrderProjection, OrderState>(ProjectionMode.Inline);
         });
 
         var provider = services.BuildServiceProvider();
