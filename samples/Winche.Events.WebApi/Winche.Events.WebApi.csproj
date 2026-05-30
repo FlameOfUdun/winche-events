@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Winche.Events\Winche.Events.csproj" />
+    <ProjectReference Include="..\..\src\Winche.Events.Commands\Winche.Events.Commands.csproj" />
+    <ProjectReference Include="..\..\src\Winche.Events.Abstractions\Winche.Events.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

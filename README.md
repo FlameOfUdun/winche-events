@@ -454,6 +454,101 @@ Default is `ReadCommitted`.
 
 ---
 
+## Connection string configuration
+
+The libraries never embed a connection string. Supply it at registration time:
+
+```csharp
+services.AddWincheEvents(opts =>
+{
+    opts.ConnectionString = "Host=localhost;Database=mydb;Username=postgres;Password=...";
+    // ...
+});
+```
+
+**For production** read from configuration instead of hardcoding:
+
+```csharp
+opts.ConnectionString = builder.Configuration.GetConnectionString("Postgres")
+    ?? throw new InvalidOperationException("Postgres connection string not configured.");
+```
+
+**For integration tests** read from an environment variable so the value is never committed:
+
+```csharp
+private static readonly string ConnectionString =
+    Environment.GetEnvironmentVariable("WINCHE_TEST_CONN")
+    ?? throw new InvalidOperationException("Set WINCHE_TEST_CONN before running integration tests.");
+```
+
+Set the variable in your shell before running `dotnet test`:
+
+```powershell
+$env:WINCHE_TEST_CONN = "Host=localhost;Database=winche_events_test;Username=postgres;Password=..."
+dotnet test
+```
+
+---
+
+## Web API sample (`samples/Winche.Events.WebApi`)
+
+A minimal ASP.NET Core API demonstrating `ICommandDispatcher` and `IEventSession` over HTTP. Uses a **Notes** domain (create / update / delete).
+
+### Endpoints
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/api/dispatch` | Dispatch any command. `streamId` lives in the body so slash-prefixed IDs (e.g. `notes/uuid`) work without routing issues. |
+| `GET` | `/api/notes/{noteId}` | Current note state. Returns 404 if deleted. |
+| `GET` | `/api/notes` | All non-deleted notes. |
+
+### Request/response contract
+
+```json
+// POST /api/dispatch
+{
+  "streamId": "notes/550e8400-e29b-41d4-a716-446655440000",
+  "commandType": "CreateNoteCommand",
+  "payload": { "title": "Buy milk" },
+  "createdAt": "2026-05-30T12:00:00Z"
+}
+
+// Response 200
+{
+  "version": 1,
+  "events": [
+    {
+      "id": "uuid",
+      "eventType": "NoteCreated",
+      "data": { "title": "Buy milk", "content": "" },
+      "version": 1,
+      "timestamp": "2026-05-30T12:00:00Z",
+      "sequence": 42
+    }
+  ]
+}
+
+// Response 400 (domain rejection or unknown commandType)
+{ "error": "Note already exists." }
+```
+
+Supported `commandType` values: `CreateNoteCommand`, `UpdateNoteCommand`, `DeleteNoteCommand`.
+
+### Running
+
+Configure the connection string via `appsettings.json` or environment variable, then:
+
+```powershell
+# appsettings.json  →  "ConnectionStrings": { "Postgres": "Host=..." }
+# or environment variable:
+$env:ConnectionStrings__Postgres = "Host=localhost;Database=mydb;Username=postgres;Password=..."
+
+dotnet run --project samples/Winche.Events.WebApi
+# API available at http://localhost:5000
+```
+
+---
+
 ## Requirements
 
 - .NET 10

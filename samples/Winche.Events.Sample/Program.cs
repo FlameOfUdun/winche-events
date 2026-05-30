@@ -10,7 +10,7 @@ using Winche.Events.Session;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-const string ConnectionString = "Host=localhost;Port=5432;Username=postgres;Password=Ehsan1371;Database=winche_events_test";
+const string ConnectionString = "your-connection-string-here";
 
 var services = new ServiceCollection();
 services.AddLogging(b => b.AddConsole().SetMinimumLevel(LogLevel.Information));

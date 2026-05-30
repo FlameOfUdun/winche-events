@@ -42,8 +42,8 @@ public class EventSessionTests : IAsyncLifetime
     private IEventStore _eventStore = null!;
     private CapturingNotifier _notifier = null!;
 
-    private const string ConnectionString =
-        "Host=localhost;Database=winche_events_test;Username=postgres;Password=Ehsan1371";
+    private static readonly string ConnectionString =
+        Environment.GetEnvironmentVariable("WINCHE_TEST_CONN") ?? "your-connection-string-here";
 
     public async Task InitializeAsync()
     {

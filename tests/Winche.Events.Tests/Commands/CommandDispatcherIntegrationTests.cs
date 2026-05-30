@@ -44,8 +44,8 @@ public class CommandDispatcherIntegrationTests : IAsyncLifetime
     private IDocumentStore _martenStore = null!;
     private ICommandDispatcher _dispatcher = null!;
 
-    private const string ConnectionString =
-        "Host=localhost;Database=winche_events_test;Username=postgres;Password=Ehsan1371";
+    private static readonly string ConnectionString =
+        Environment.GetEnvironmentVariable("WINCHE_TEST_CONN") ?? "your-connection-string-here";
 
     public async Task InitializeAsync()
     {
