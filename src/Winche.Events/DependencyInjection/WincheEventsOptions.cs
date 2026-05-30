@@ -49,8 +49,9 @@ public sealed class WincheEventsOptions
     /// <typeparam name="TProjection">Concrete projection class inheriting <c>Projection&lt;TAggregate&gt;</c>.</typeparam>
     /// <typeparam name="TAggregate">The aggregate type produced by this projection.</typeparam>
     /// <param name="mode">
-    /// <see cref="ProjectionMode.Inline"/>: updated in the same transaction; handlers must not do external I/O.<br/>
-    /// <see cref="ProjectionMode.Async"/>: updated by the background daemon; handlers may do external I/O.
+    /// <see cref="ProjectionMode.Inline"/>: updated in the same transaction as the append.<br/>
+    /// <see cref="ProjectionMode.Async"/>: updated by the background daemon after commit.
+    /// Projection handlers are always synchronous — async enrichment belongs in command handlers.
     /// </param>
     public void AddProjection<TProjection, TAggregate>(ProjectionMode mode)
         where TProjection : Projection<TAggregate>
@@ -65,9 +66,7 @@ public sealed class WincheEventsOptions
             Configure: (opts, sp) =>
             {
                 var projection = sp.GetRequiredService<Projection<TAggregate>>();
-                SingleStreamProjection<TAggregate, string> bridge = lifecycle == ProjectionLifecycle.Inline
-                    ? new InlineProjectionBridge<TAggregate>(projection)
-                    : new AsyncProjectionBridge<TAggregate>(projection);
+                var bridge = new ProjectionBridge<TAggregate>(projection);
                 opts.Projections.AddGlobalProjection<TAggregate, string>(bridge, lifecycle);
             }
         ));

@@ -20,19 +20,6 @@ class CounterProjection : Projection<Counter>
     public override Counter Create(string id) => new Counter(0) { Id = id };
 }
 
-class AsyncCounterProjection : Projection<Counter>
-{
-    public AsyncCounterProjection()
-    {
-        On<Incremented>((s, e) => s with { Value = s.Value + 1 });
-        On<Incremented>(async (s,  e) =>
-        {
-            await Task.Yield();
-            return s with { Value = s.Value + 10 };
-        });
-    }
-    public override Counter Create(string id) => new Counter(0) { Id = id };
-}
 
 class MetadataProjection : Projection<Counter>
 {
@@ -183,39 +170,6 @@ public class ProjectionTests
         var p = new CounterProjection();
         var state = new Counter(42) { Id = "test" };
         p.ApplyEvent(state, Envelope(new UnknownEvent())).Should().Be(state);
-    }
-
-    [Fact]
-    public void ApplyEvent_uses_sync_handler_even_when_async_also_registered()
-    {
-        var p = new AsyncCounterProjection();
-        var result = p.ApplyEvent(p.Create("test"), Envelope(new Incremented()));
-        result.Value.Should().Be(1);
-    }
-
-    [Fact]
-    public async Task ApplyEventAsync_prefers_async_handler_when_both_registered()
-    {
-        var p = new AsyncCounterProjection();
-        var result = await p.ApplyEventAsync(p.Create("test"), Envelope(new Incremented()));
-        result.Value.Should().Be(10);
-    }
-
-    [Fact]
-    public async Task ApplyEventAsync_falls_back_to_sync_handler()
-    {
-        var p = new CounterProjection();
-        var result = await p.ApplyEventAsync(p.Create("test"), Envelope(new Incremented()));
-        result.Value.Should().Be(1);
-    }
-
-    [Fact]
-    public async Task ApplyEventAsync_returns_state_unchanged_for_unregistered_event()
-    {
-        var p = new CounterProjection();
-        var state = new Counter(42) { Id = "test" };
-        var result = await p.ApplyEventAsync(state, Envelope(new UnknownEvent()));
-        result.Should().Be(state);
     }
 
     [Fact]

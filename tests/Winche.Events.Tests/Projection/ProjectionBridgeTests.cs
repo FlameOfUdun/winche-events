@@ -22,7 +22,7 @@ public class ProjectionBridgeTests
     [Fact]
     public void Evolve_creates_state_and_applies_sync_handler()
     {
-        var bridge = new InlineProjectionBridge<Counter>(new CounterProjection());
+        var bridge = new ProjectionBridge<Counter>(new CounterProjection());
         var result = bridge.Evolve(null, "test", MockEvent(new Incremented()));
         result.Should().Be(new Counter(1) { Id = "test" });
     }
@@ -30,7 +30,7 @@ public class ProjectionBridgeTests
     [Fact]
     public void Evolve_applies_to_existing_snapshot()
     {
-        var bridge = new InlineProjectionBridge<Counter>(new CounterProjection());
+        var bridge = new ProjectionBridge<Counter>(new CounterProjection());
         var snapshot = new Counter(5) { Id = "test" };
         var result = bridge.Evolve(snapshot, "test", MockEvent(new Incremented()));
         result.Should().Be(new Counter(6) { Id = "test" });
@@ -39,25 +39,25 @@ public class ProjectionBridgeTests
     [Fact]
     public void Evolve_returns_unchanged_state_for_unregistered_event()
     {
-        var bridge = new InlineProjectionBridge<Counter>(new CounterProjection());
+        var bridge = new ProjectionBridge<Counter>(new CounterProjection());
         var snapshot = new Counter(42) { Id = "test" };
         var result = bridge.Evolve(snapshot, "test", MockEvent(new UnknownEvent()));
         result.Should().Be(new Counter(42) { Id = "test" });
     }
 
     [Fact]
-    public async Task EvolveAsync_passes_envelope_with_correct_metadata()
+    public void Evolve_passes_envelope_with_correct_metadata()
     {
         var ts = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var meta = new MetadataProjection();
-        var bridge = new AsyncProjectionBridge<Counter>(meta);
+        var bridge = new ProjectionBridge<Counter>(meta);
         var jasperEvent = Substitute.For<JasperFxEvent>();
         jasperEvent.Data.Returns(new Incremented());
         jasperEvent.Id.Returns(Guid.Empty);
         jasperEvent.Version.Returns(7L);
         jasperEvent.Timestamp.Returns(ts);
 
-        await bridge.EvolveAsync(null, "counters/99", Substitute.For<Marten.IQuerySession>(), jasperEvent, default);
+        bridge.Evolve(null, "counters/99", jasperEvent);
 
         meta.LastVersion.Should().Be(7);
         meta.LastTimestamp.Should().Be(ts);

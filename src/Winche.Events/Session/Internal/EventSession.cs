@@ -83,9 +83,10 @@ internal sealed class EventSession : IEventSession
 
     public async Task<IReadOnlyList<EventEnvelope<IEvent>>> GetEventsAsync(
         string streamId,
+        long fromVersion = 0,
         CancellationToken ct = default)
     {
-        var raw = await _session.Events.FetchStreamAsync(streamId, token: ct);
+        var raw = await _session.Events.FetchStreamAsync(streamId, fromVersion: fromVersion, token: ct);
         return [..raw.Select(e => new EventEnvelope<IEvent>(e.Id.ToString(), streamId, (IEvent)e.Data, e.Version, e.Timestamp, e.Sequence, e.EventTypeName, e.DotNetTypeName))];
     }
 

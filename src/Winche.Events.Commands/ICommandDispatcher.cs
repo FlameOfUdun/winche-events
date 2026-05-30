@@ -15,10 +15,13 @@ public interface ICommandDispatcher
     /// <typeparamref name="TAggregate"/> is inferred from the command's <c>ICommand&lt;TAggregate&gt;</c>
     /// implementation — no explicit type argument needed at the call site.
     /// </summary>
-    Task DispatchAsync<TAggregate>(
+    /// <summary>
+    /// Returns the events the server appended and the new stream version.
+    /// Offline sync clients use this to store confirmed events locally.
+    /// </summary>
+    Task<DispatchResult> DispatchAsync<TAggregate>(
         string streamId,
         ICommand<TAggregate> command,
-        long? expectedVersion = null,
         CancellationToken ct = default)
         where TAggregate : class, IAggregate;
 }

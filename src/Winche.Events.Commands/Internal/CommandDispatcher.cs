@@ -15,18 +15,20 @@ internal sealed class CommandDispatcher : ICommandDispatcher
         _serviceProvider = serviceProvider;
     }
 
-    public async Task DispatchAsync<TAggregate>(
+    public async Task<DispatchResult> DispatchAsync<TAggregate>(
         string streamId,
         ICommand<TAggregate> command,
-        long? expectedVersion = null,
         CancellationToken ct = default)
         where TAggregate : class, IAggregate
     {
         await using var session = await _eventStore.OpenSessionAsync(ct: ct);
-        var state   = await session.GetStateAsync<TAggregate>(streamId, ct);
-        var handler = _serviceProvider.GetRequiredService<CommandHandler<TAggregate>>();
-        var events  = await handler.HandleAsync(state, command, ct);
-        await session.AppendStreamAsync(streamId, events, expectedVersion, ct);
+        var streamEnvelope   = await session.GetStreamAsync<TAggregate>(streamId, ct);
+        var previousVersion  = streamEnvelope?.Version ?? 0;
+        var handler          = _serviceProvider.GetRequiredService<CommandHandler<TAggregate>>();
+        var events           = await handler.HandleAsync(streamEnvelope?.Aggregate, command, ct);
+        await session.AppendStreamAsync(streamId, events, command.ExpectedVersion, ct);
         await session.SaveChangesAsync(ct);
+        var newEvents = await session.GetEventsAsync(streamId, fromVersion: previousVersion + 1, ct);
+        return new DispatchResult(newEvents, previousVersion + newEvents.Count);
     }
 }

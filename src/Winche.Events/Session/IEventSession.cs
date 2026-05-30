@@ -58,11 +58,13 @@ public interface IEventSession : IAsyncDisposable
         CancellationToken ct = default) where TAggregate : class, IAggregate;
 
     /// <summary>
-    /// Returns all events for <paramref name="streamId"/> in order, each wrapped with stream metadata.
+    /// Returns events for <paramref name="streamId"/> in order, each wrapped with stream metadata.
+    /// Pass <paramref name="fromVersion"/> to fetch only events at or after that version.
     /// Returns an empty list if the stream does not exist.
     /// </summary>
     Task<IReadOnlyList<EventEnvelope<IEvent>>> GetEventsAsync(
         string streamId,
+        long fromVersion = 0,
         CancellationToken ct = default);
 
     /// <summary>

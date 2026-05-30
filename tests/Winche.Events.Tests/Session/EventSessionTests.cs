@@ -222,6 +222,26 @@ public class EventSessionTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task GetEventsAsync_with_fromVersion_returns_only_events_at_or_after()
+    {
+        await using var session = await _eventStore.OpenSessionAsync();
+        await session.AppendStreamAsync("orders/fv1", [
+            new OrderPlaced("orders/fv1"),
+            new OrderShipped("orders/fv1"),
+            new OrderPlaced("orders/fv1"),
+        ]);
+        await session.SaveChangesAsync();
+
+        await using var readSession = await _eventStore.OpenSessionAsync();
+        var events = await readSession.GetEventsAsync("orders/fv1", fromVersion: 2);
+
+        events.Should().HaveCount(2);
+        events.Should().AllSatisfy(e => e.Version.Should().BeGreaterThanOrEqualTo(2));
+        events[0].Version.Should().Be(2);
+        events[1].Version.Should().Be(3);
+    }
+
+    [Fact]
     public async Task GetEventsAsync_OfEventType_filters_correctly()
     {
         await using var session = await _eventStore.OpenSessionAsync();

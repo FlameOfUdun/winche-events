@@ -80,3 +80,28 @@ public class CommandHandlerTests
             .WithMessage("*CreateThing*");
     }
 }
+
+public class CommandBaseTests
+{
+    [Fact]
+    public void Command_ExpectedVersion_defaults_to_null()
+    {
+        var cmd = new CreateThing("x");
+        cmd.ExpectedVersion.Should().BeNull();
+    }
+
+    [Fact]
+    public void Command_CreatedAt_defaults_to_UtcNow()
+    {
+        var before = DateTimeOffset.UtcNow.AddSeconds(-1);
+        var cmd = new CreateThing("x");
+        cmd.CreatedAt.Should().BeAfter(before).And.BeOnOrBefore(DateTimeOffset.UtcNow.AddSeconds(1));
+    }
+
+    [Fact]
+    public void Command_ExpectedVersion_can_be_set_via_init()
+    {
+        var cmd = new CreateThing("x") { ExpectedVersion = 7 };
+        cmd.ExpectedVersion.Should().Be(7);
+    }
+}
